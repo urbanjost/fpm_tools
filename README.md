@@ -4,7 +4,9 @@ This is a scratch directory for testing `fpm` and will generally be
 broken. **Nothing to see here**.
 
  + The fpm(1) home page is at [https://github.com/fortran-lang/fpm](https://github.com/fortran-lang/fpm).
+   In includes instructions on **installing** from a binary or how to bootstrap from source.
    It includes a **discussion** and **issues** section.
+   There is also a link to how to become a **contributor**
  + installing fpm
  + the [packaging page](https://github.com/fortran-lang/fpm/blob/master/PACKAGING.md)
  + [help text](https://urbanjost.github.io/fpm_tools/manual.html) from the `fpm` program
