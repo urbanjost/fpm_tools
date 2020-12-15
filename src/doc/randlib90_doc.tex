@@ -1,0 +1,860 @@
+% Modified for dvips
+
+\documentclass[12pt,dvips]{article}
+\usepackage{color}
+
+%Set up hyperref for pdflatex
+
+% \usepackage[bookmarks,
+%             bookmarksopen,
+%             pdftex=true]{hyperref}
+\definecolor{Orange}{cmyk}{0,0.61,0.87,0}
+\newcommand{\mysection}[1]{\color{blue}
+            \section{#1} \normalcolor}
+\newcommand{\mysubsection}[1] {\color{green}
+            \subsection{#1} \normalcolor}
+\newcommand{\mysubsubsection}[1]{\color{Orange}
+            \subsubsection{#1} \normalcolor}
+\newcommand{\myitem}[1]{\item{\bf \color{Violet} #1 \normalcolor}}
+
+
+\addtolength{\oddsidemargin}{-0.5in} 
+\addtolength{\textheight}{1.0in}
+\addtolength{\textwidth}{0.5in} 
+\setlength{\parindent}{0in}
+%\renewcommand{\baselinestretch}{1.5}
+\newcommand{\meta}[1]{{\ensuremath{<}}#1{\ensuremath{{>}}}}
+\newcommand{\us}{\underline{ }}
+\newcommand{\inrange}[2]{\hfill Input Range: \ensuremath{\left[ #1:#2
+\right]}\\}
+\newcommand{\inrangeopen}[1]{\hfill Input range: \ensuremath{\left( #1 \right)}\\}
+\newcommand{\searchrange}[1]{\hfill Search range: 
+    \ensuremath{\left[ #1 \right]}\\}
+\newcommand{\searchrangeopen}[1]{\hfill Search range: 
+    \ensuremath{\left( #1 \right)}\\}
+\newcommand{\rtiny}{10^{-37}}
+\renewcommand{\labelitemi}{\ensuremath{\bullet}}
+\renewcommand{\labelitemii}{\ensuremath{\circ}}
+\renewcommand{\labelitemiii}{\ensuremath{\odot}}
+\definecolor {blue} {rgb} {0, 0, 1}
+\definecolor {red} {rgb}  {1, 0, 0}
+\definecolor {green} {rgb} {0, 1, 0}
+\definecolor {white} {gray} {1}
+\definecolor {black} {gray} {0}
+\definecolor {cyan} {cmyk} {1, 0, 0 , 0}
+\definecolor {magenta} {cmyk} {0, 1, 0, 0}
+\definecolor {yellow} {cmyk} {0, 0, 1, 0}
+\definecolor{Orange}        {cmyk}{0,0.61,0.87,0}
+\definecolor{Violet}        {cmyk}{0.79,0.88,0,0}
+
+\begin{document}
+
+% Title Page
+
+\vspace*{\fill}
+
+{\Large \centering \textcolor {red} {RANDLIB90\\
+\textcolor {blue}{Fortran 95 Routines for Random Number Generation}\\
+\textcolor {green} {User's Guide}\\}}
+
+\vspace{0.5in}
+
+{\large \centering \textcolor{Orange}{Barry W. Brown\\
+James Lovato\\}}
+
+\vspace*{\fill}
+
+\mysection{Technicalities}
+
+\mysubsection{Obtaining the Code}
+
+The source for this code (and all code written by this group) can be
+obtained from the following URL:\\
+
+{\bf http://odin.mdacc.tmc.edu/anonftp/\\}
+
+\mysubsection{Legalities}
+
+We place  our efforts  in writing this  package in the  public domain.
+However,  code from  ACM publications  is  subject to  the ACM  policy
+(below).
+
+\mysubsection{References}
+
+\mysubsubsection{Base Generator}
+
+The base generator and all code in the ecuyer\_cote\_mod come from the
+reference:
+
+P.   L'Ecuyer  and S.  Cote.  (1991)  ``Implementing  a Random  Number
+Package   with  Splitting   Facilities.''   {\em ACM   Trans.  on
+Math. Softw. 17}:1, pp 98-111.
+
+We transliterated the Pascal of the reference to Fortran 95.
+
+\mysubsection{The Beta Random Number Generator}
+
+R. C.   H. Cheng (1978)  ``Generating  Beta Variates  with Nonintegral
+Shape  Parameters.''   {\em  Communications of   the  ACM, 21}:317-322
+(Algorithms B and BC)
+
+\mysubsection{The Binomial Random Number Generator}
+
+Kachitvichyanukul, V. and   Schmeiser,
+B.  W.  (1988)    ``Binomial   Random   Variate Generation.''     {\em
+Communications of the ACM, 31}: 216.  (Algorithm BTPE.)
+
+\mysubsection{The Standard Exponential Random Number Generator}
+
+Ahrens,  J.H.  and Dieter, U.  (1972)  ``Computer Methods for Sampling
+from the Exponential and  Normal Distributions.''  {\em Communications
+of the ACM, 15}: 873-882.  (Algorithm SA.)
+
+\mysubsection{The Standard Gamma Random Number Generator}
+
+Ahrens, J.H. and  Dieter, U. (1982) ``Generating  Gamma Variates by  a
+Modified Rejection Technique.''  {\em Communications  of the ACM, 25}:
+47-54.  (Algorithm SA.)
+
+\mysubsection{The Standard Normal Random Number Generator}
+
+Ahrens, J.H.  and Dieter, U.  (1973) ``Extensions of Forsythe's Method
+for    Random Sampling   from   the     Normal  Distribution.''   {\em
+Math. Comput., 27}:927 - 937.  Algorithm FL (method=5)
+
+\mysubsection{ACM Policy on Use of Code}
+
+Here  is the  software Policy of  the  ACM.
+
+\begin{quote}
+
+     Submittal of  an  algorithm    for publication  in   one of   the  ACM
+     Transactions implies that unrestricted use  of the algorithm within  a
+     computer is permissible.   General permission  to copy and  distribute
+     the algorithm without fee is granted provided that the copies  are not
+     made  or   distributed for  direct   commercial  advantage.    The ACM
+     copyright notice and the title of the publication and its date appear,
+     and  notice is given that copying  is by permission of the Association
+     for Computing Machinery.  To copy otherwise, or to republish, requires
+     a fee and/or specific permission.
+
+     Krogh, F.  (1997) ``Algorithms  Policy.''  {\em ACM  Tran.  Math.
+     Softw.  13}, 183-186.
+
+\end{quote}
+
+Here is our standard disclaimer.
+
+\begin{quote}
+
+{\centering NO WARRANTY\\}
+
+WE PROVIDE ABSOLUTELY  NO WARRANTY  OF ANY  KIND  EITHER  EXPRESSED OR
+IMPLIED,  INCLUDING BUT   NOT LIMITED TO,  THE  IMPLIED  WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  THE ENTIRE RISK
+AS TO THE QUALITY AND PERFORMANCE OF THE PROGRAM IS  WITH YOU.  SHOULD
+THIS PROGRAM PROVE  DEFECTIVE, YOU ASSUME  THE COST  OF  ALL NECESSARY
+SERVICING, REPAIR OR CORRECTION.
+
+IN NO  EVENT  SHALL THE UNIVERSITY  OF TEXAS OR  ANY  OF ITS COMPONENT
+INSTITUTIONS INCLUDING M. D.   ANDERSON HOSPITAL BE LIABLE  TO YOU FOR
+DAMAGES, INCLUDING ANY  LOST PROFITS, LOST MONIES,   OR OTHER SPECIAL,
+INCIDENTAL   OR  CONSEQUENTIAL DAMAGES   ARISING   OUT  OF  THE USE OR
+INABILITY TO USE (INCLUDING BUT NOT LIMITED TO LOSS OF DATA OR DATA OR
+ITS ANALYSIS BEING  RENDERED INACCURATE OR  LOSSES SUSTAINED  BY THIRD
+PARTIES) THE PROGRAM.
+
+(Above NO WARRANTY modified from the GNU NO WARRANTY statement.)
+\end{quote}
+
+
+\pagebreak
+
+\mysection{Introduction: The ecuyer\_cote\_mod module}
+
+The base random generator for this set of programs contains 32 virtual
+random number generators.  Each generator can provide 1,048,576 blocks
+of numbers, and each block  is of length 1,073,741,824.  Any generator
+can be  set to the  beginning or  end of the  current block or  to its
+starting  value.  The  methods are  from the  paper  cited immediately
+below, and  most of the code  is a transliteration from  the Pascal of
+the paper into Fortran.
+
+
+Most users won't need  the sophisticated capabilities of this package,
+and will desire a single generator.  This single generator (which will
+have  a non-repeating  length of  $2.3 \times  10^18$ numbers)  is the
+default.
+
+\mysection{Initializing the Random Number Generator}
+
+You almost  certainly want  to start the  random number  generation by
+setting the seed.  (Defaults are provided  if the seed is not set, but
+the defaults will  produce the same set of numbers on  each run of the
+program which is generally not what is wanted.)
+
+Make   sure  that  the  program unit  that   sets  the seed has\\  
+USE user\_set\_generator at its top.
+
+The most straightforward  way  of  setting  the  values  need  by  the
+generator is a call to USER\_SET\_ALL.
+\vspace{0.2in}
+
+SUBROUTINE USER\_SET\_ALL( SEED1, SEED2, GENERATOR)
+
+\vspace{0.2in}
+{\centering  ARGUMENTS\\}
+\vspace{0.1in}
+
+\begin{itemize}
+
+\myitem{INTEGER, INTENT(IN) :: SEED1} The first number used to set the
+generator.
+
+\myitem{INTEGER, INTENT(IN) :: SEED2} The second number used to set the
+generator.
+
+\myitem{INTEGER, INTENT(IN), OPTIONAL :: GENERATOR} The current
+generator.  If this argument is not present, the current generator is
+set to 1.
+\inrange{1}{32}
+
+\end{itemize}
+
+It is easier to remember an English phrase, such as your name, than it
+is  to  remember two large  integer   values.   The following  routine
+prompts interactively for a phrase (non-blank character string -- only
+the first 80  characters are used)  and hashes the  phrase  to set the
+seeds of the random number generator.  The current generator is set to
+1.
+
+\vspace{0.2in}
+SUBROUTINE INTER\_PHRASE\_SET\_SEEDS()
+\vspace{0.2in}
+
+This routine calls the following routine which is the non-interactive
+version of the same action.
+
+\vspace{0.2in}
+SUBROUTINE PHRASE\_SET\_SEEDS(PHRASE)\\
+\hspace{0.5in} CHARACTER(LEN=*), INTENT(IN) :: PHRASE
+\vspace{0.2in}
+
+This in turn calls the lowest level routine:
+
+\vspace{0.2in}
+CALL PHRASE\_TO\_SEED( PHRASE, SEED1, SEED2 )\\
+\hspace{0.5in} CHARACTER(LEN=*), INTENT(IN) :: PHRASE\\
+\hspace{0.5in} INTEGER, INTENT(OUT) :: SEED1, SEED2
+\vspace{0.2in}
+
+In  this call,  phrase is  an  (input) character  string of  arbitrary
+length and seed1 and seed2 are two (output) integer values that may be
+used to initialize the seeds of the random number generator.
+
+Setting  the seeds  to  a fixed  value   is  extremely useful  in  the
+debugging  phase of a project  where exact runs  are to be replicated.
+However, there are occasions  in which a  random appearing sequence is
+desired -- an  example is computer games.   The following routine sets
+the seeds of the generator using the system clock.  
+
+\vspace{0.2in}
+SUBROUTINE TIME\_SET\_SEEDS()
+\vspace{0.2in}
+
+If the    computer doesn't have a  clock   (unlikely) then the routine
+queries  the user for a  phrase to use to set  the seeds.  The current
+generator is set to 1.
+
+The  next  described routine  allows  the programmer to select setting
+seeds by time or from a phrase entered interactively.
+
+\vspace{0.2in}
+SUBROUTINE SET\_SEEDS(WHICH)\\
+\hspace{0.5in} INTEGER, OPTIONAL, INTENT(IN) :: WHICH
+\vspace{0.2in}
+
+If WHICH  is not present, the routine  queries the  user as to whether
+time or a phrase  is to be  used to set the random  number seeds.   If
+WHICH is present  in the calling list and  equals 1 then the seeds are
+set from the time;  if WHICH is present and   not equal to 1  then the
+seeds are set for a phrase promted from the user..
+
+The current generator is set through 
+
+\vspace{0.2in}
+SUBROUTINE SET\_CURRENT\_GENERATOR(G)\\
+\hspace{0.5in} INTEGER, INTENT(IN) :: G
+\vspace{0.2in}
+
+The integer argument G sets the number of the current generator to its
+value which must be between 1 and 32.
+
+\pagebreak
+
+\mysection{random\_beta\_mod}
+
+      FUNCTION RANDOM\_BETA(A,B)
+
+\mysubsection{The Distribution}
+
+The density of the beta distribution is defined on $x$ in $[0,1]$ and
+is proportional to
+\[ x^a (1-x)^b \]
+
+\mysubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{REAL, INTENT(IN) :: A.} The first parameter of the beta
+  distribution (a above).
+\inrange{\rtiny}{\infty}
+
+\myitem{REAL, INTENT(IN) :: B.} The second parameter of the beta
+  distribution (b above).
+\inrange{\rtiny}{\infty}
+
+\end{itemize}
+
+\pagebreak
+
+\mysection{random\_binomial\_mod}
+
+      REAL FUNCTION RANDOM\_BINOMIAL(N,PR)
+
+\mysubsection{The Distribution}
+
+The density of the binomial distribution provides the probability of S
+successes in N independent trials, each with probability of success
+PR.
+
+The density is proportional to
+\[ PR^S (1-PR)^{N-S} \]
+
+The routine returns values of S drawn from this distribution.
+
+\mysubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{INTEGER, INTENT(IN) :: N.}  The number of binomial trials.
+\inrange{0}{\infty}
+
+
+\myitem{REAL, INTENT(IN) :: PR.}  The probability of success at each
+  trial.
+\inrange{0}{1}
+
+\end{itemize}
+
+\pagebreak
+
+\mysection{random\_chisq\_mod}
+
+      REAL FUNCTION RANDOM\_CHISQ(DF)
+
+\mysubsection{The Distribution}
+
+The chi-squared distribution is the  distribution of the sum of squares
+of DF independent unit (mean 0, sd 1) normal deviates.
+
+The density  is defined on $x$ in $[0,\infty)$ and
+is proportional to
+\[ x^{(DF-2)/2} \exp(-x/2 \]
+
+\mysubsection{Argument}
+
+\begin{itemize}
+
+\myitem{REAL, INTENT(IN) :: DF.} The degrees of freedom of the
+  chi-square distribution.
+\inrange{\rtiny}{\infty}
+
+\end{itemize}
+
+\pagebreak
+
+\mysection{random\_exponential\_mod}
+
+      REAL FUNCTION RANDOM\_EXPONENTIAL(AV)
+
+\mysubsection{The Distribution}
+
+The density is:
+
+\[ 1/AV \exp(-x/AV) \]
+
+\mysubsection{Argument}
+
+\begin{itemize}
+
+\myitem{REAL, INTENT(IN) :: AV.} The mean of the exponential; 
+see density above.
+\inrange{\rtiny}{\infty}
+
+\end{itemize}
+
+\pagebreak
+
+\mysection{random\_gamma\_mod}
+
+REAL FUNCTION RANDOM\_GAMMA(scale,shape)
+
+\mysubsection{The Distribution}
+
+The density of the GAMMA distribution is proportional to:
+
+\[ (x/SCALE)^{SHAPE-1} \exp(-x/SCALE) \]
+
+\mysubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{REAL (dpkind), INTENT(IN) :: SHAPE.}  The shape parameter of the
+distribution (See above.)\\
+\inrange{\rtiny}{\infty}
+
+\myitem{REAL (dpkind), INTENT(IN) :: SCALE.}  The scale parameter of the
+distribution.\\ \inrange{\rtiny}{\infty}
+
+\end{itemize}
+
+\pagebreak
+
+\mysection{random\_multinomial\_mod}
+
+      SUBROUTINE RANDOM\_MULTINOMIAL(N,P,NCAT,IX)
+
+\mysubsection{The Distribution}
+
+Each observation falls into one category where the categories are
+numbered $1 \ldots NCAT$.  The observations are independent and the
+probability that the outcome will be category $i$ is $P(i)$.  There
+are N observations altogether, and the number falling in category $i$
+is IX(i).
+
+\mysubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{INTEGER, INTENT(IN) :: N} The number of observations from the 
+multinomial distribution.
+\inrange{1}{\infty}
+
+\myitem{REAL,   DIMENSION(NCAT-1),  INTENT(IN)   ::  P}   P(i)   is  the
+probability that an observation falls into category i.  NOTE: The P(i)
+must be  non-negative and  less than  or equal to  1.  Only  the first
+NCAT-1 P(i) are  used, the final one is  obtained from the restriction
+that all NCAT P's must add to 1.
+
+\myitem{INTEGER, INTENT(IN) :: NCAT}  The number of outcome categories.
+NCAT must be at least 2.
+
+\myitem{INTEGER, INTENT(OUT), IX(NCAT)} 
+
+\end{itemize}
+
+\pagebreak
+
+\mysection{random\_multivariate\_normal\_mod}
+
+\mysection{The Distribution}
+
+The multivariate normal density is:
+
+\[ (2 \pi)^{-(k/2)} |COVM|^{-1/2} \exp(\left[ -(1/2)(X-MEANV)^T
+COVM^{-1} (X-MEANV)\right] ) \]
+where superscript T is the transpose operator.
+
+\mysection{Use of Routines}
+
+First, CALL SET\_RANDOM\_MULTIVARIATE\_NORMAL.  This routine processes
+and saves information needed to generate multivariate normal deviates.
+Successive calls to RANDOM\_MULTIVARIATE\_NORMAL generate deviates
+from values specified in the most recent SET routine.
+
+SUBROUTINE SET\_RANDOM\_MULTIVARIATE\_NORMAL(MEANV,COVM,P)
+
+\mysubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{REAL, INTENT(IN), DIMENSION(:) :: MEANV.} The mean of the
+multivariate normal.  The size of MEANV must be at least P; if it is
+more than P, entries following the P'th are ignored.
+
+\myitem{REAL,  INTENT(IN),   DIMENSION(:,:)  ::  COVM.}    The  variance
+covariance matrix of the multivariate normal.  Both dimensions must be
+at  least P;  if the  matrix  is bigger  than PXP,  extra entries  are
+ignored.
+
+\myitem{INTEGER,  INTENT(IN) ::  P.} The  dimension of  the multivariate
+normal deviates to be generated.
+
+\end{itemize}
+
+SUBROUTINE RANDOM\_MULTIVARIATE\_NORMAL(X)
+
+\mysubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{REAL, INTENT(OUT), DIMENSION(:) :: X.}  Contains the generated
+multivariate normal deviate.  NOTE.  No check on the size of X is made
+-- the programmer must assure that it is big enough.
+
+\end{itemize}
+
+\pagebreak
+
+\mysection{random\_nc\_chisq\_mod}
+
+FUNCTION random\_nc\_chisq(df,pnonc)
+
+\mysubsection{The Distribution}
+
+The noncentral  chi-squared distribution is the sum  of DF independent
+normal  distributions  with  unit  standard deviations,  but  possibly
+non-zero  means .  Let  the mean  of the  $i$th normal  be $\delta_i$.
+Then PNONC = $ \sum_i \delta_i$.
+
+\mysubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{REAL, INTENT(IN) :: DF.} The degrees of freedom of the
+noncentral chi-squared.
+
+\myitem{REAL, INTENT(IN) :: PNONC.} The noncentrality parameter of the
+noncentral chi-squared.
+
+\end{itemize}
+
+\pagebreak
+
+\mysection{random\_negative\_binomial\_mod}
+
+FUNCTION random\_negative\_binomial(s,pr)
+
+\mysubsection{The Distribution}
+
+The  density  of  the  negative  binomial  distribution  provides  the
+probability  of  precisely  F  failures  before the  S'th  success  in
+independent binomial trials, each with probability of success PR.
+
+The density is 
+
+\[ \left( \begin{array}{c} F+S-1\\ S-1 \end{array} \right) PR^S (1-PR)^F \]
+
+This routine returns a random value of F given values of S and P.
+
+\mysubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{INTEGER, INTENT(IN) :: S.}  The number of succcesses after which
+the number of failures is not counted.
+
+\myitem{REAL, INTENT(IN) :: PR.} The probability of success in each
+binomial trial.
+
+\end{itemize}
+
+\pagebreak
+
+\mysection{random\_normal\_mod}
+
+FUNCTION random\_normal(mean,sd)
+
+\mysubsection{The Distribution}
+
+The density of the normal distribution is proportional to
+
+\[ \exp\left(-\frac{(X-MEAN)^2}{2 SD^2}\right) \]
+
+\mysubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{REAL, INTENT(IN) :: MEAN.} The mean of the normal distribution.
+
+\myitem{REAL, INTENT(IN) :: SD.} The standard deviation of the normal
+distribution.
+
+\end{itemize}
+
+\pagebreak
+
+\mysection{random\_permutation\_mod}
+
+SUBROUTINE RANDOM\_PERMUTATION(ARRAY,LARRAY)
+
+\mysubsection{Function}
+
+Returns a random permutation of (integer) array.
+
+\mysubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{INTEGER, INTENT(INOUT) :: ARRAY.}  On input an array of integers
+(usually 1..larray).  On output a random permutation of this array.
+
+\myitem{INTEGER, INTENT(IN),  OPTIONAL:: LARRAY.} If  present the length
+of ARRAY to  be used .  If absent,  all of ARRAY is used  -- i.e., the
+SIZE function is invoked to determine the dimensioned size of ARRAY
+
+\end{itemize}
+
+\pagebreak
+
+\mysection{random\_poisson\_mod}
+
+FUNCTION random\_poisson(lambda)
+
+\mysubsection{The Distribution}
+
+The density of the Poisson distribution (probability of observing S
+events) is:
+
+\[ \frac{LAMBDA^S}{S!} \exp(-LAMBDA) \]
+
+\mysubsection{Argument}
+
+\begin{itemize}
+
+\myitem{REAL, INTENT(IN) :: LAMBDA.} The mean of the Poisson
+distribution.
+
+\end{itemize}
+
+\pagebreak
+
+\mysubsection{random\_uniform\_integer}
+
+FUNCTION RANDOM\_UNIFORM\_INTEGER(LOW,HIGH)
+
+\mysubsection{Function}
+
+Returns a random integer between LOW and HIGH (inclusive of the limits).
+
+\mysubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{INTEGER, INTENT(IN) :: LOW.}  Low limit of uniform integer.
+
+\myitem{INTEGER, INTENT(IN) :: HIGH.}  High limit of uniform integer.
+
+\end{itemize}
+
+\pagebreak
+
+\mysection{random\_uniform\_mod}
+
+FUNCTION random\_uniform(low,high)
+
+\mysubsection{Function}
+
+Returns a random real between LOW and HIGH.
+
+\mysubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{REAL, INTENT(IN) :: LOW.}  Low limit of uniform real.
+
+\myitem{REAL, INTENT(IN) :: HIGH.}  High limit of uniform real.
+
+\end{itemize}
+
+\pagebreak
+
+\mysection{The ``Standard'' Generator Modules}
+
+It is not really intended that these modules be used directly.
+However, for completeness, here is a listing of them.
+
+\mysubsection{random\_standard\_exponential\_mod}
+
+FUNCTION random\_standard\_exponential()
+
+\mysubsubsection{Function}
+
+Returns a random value from an exponential distribution with mean one.
+
+\mysubsection{random\_standard\_normal\_mod}
+
+FUNCTION random\_standard\_normal()
+
+\mysubsubsection{Function}
+
+Returns a random value from a normal distribution with mean 0 and
+standard deviation one.
+
+\mysubsection{random\_standard\_uniform\_mod}
+
+FUNCTION random\_standard\_uniform()
+
+\mysubsubsection{Function}
+
+Returns a random value from a uniform  distribution on zero to one.
+
+\mysection{Advanced Use of the ecuyer\_cote\_mod Module} 
+
+Recall the following information from the Introduction.
+
+\begin{quote}
+The base random generator for this set of programs contains 32 virtual
+random number generators.  Each generator can provide 1,048,576 blocks
+of numbers, and each block  is of length 1,073,741,824.  Any generator
+can be  set to the  beginning or  end of the  current block or  to its
+starting  value.
+\end{quote}
+
+\mysubsection{Setting the Virtual Random Number Generator}
+
+SUBROUTINE set\_current\_generator(g)
+
+Sets  the current virtual generator to  the integer  value g, where $1
+\le g \le 32$.   Before this routine  is called, the current generator
+is 1.
+
+\mysubsubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{INTEGER, INTENT(IN) :: G.}  The number of the virtual  generator
+to be used.
+
+\end{itemize}
+
+\mysubsection{Getting the Virtual Random Number Generator}
+
+      SUBROUTINE get\_current\_generator(g)
+
+\mysubsubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{INTEGER, INTENT(OUT) :: G.}  The number of the virtual  generator
+currently in use.
+
+\end{itemize}
+
+\mysubsection{Reinitializing the Current Virtual Generator}
+
+      SUBROUTINE reinitialize\_current\_generator(isdtyp)
+
+Reinitializes the state of the current generator.
+
+\mysubsubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{INTEGER, INTENT(IN) :: ISDTYP.}  The initialization action to be
+performed.
+
+\begin{description}
+
+\myitem{-1} Sets the seeds of the current generator to their value at
+the beginning of the current run.
+
+\myitem{0} Sets the seeds to the first value of the current block of seeds.
+
+\myitem{1} Sets the seeds to the first value of the next block of seeds.
+
+\end{description}
+
+\end{itemize}
+
+\mysection{Getting the Current Seeds of the Virtual Random Number Generator}
+
+      SUBROUTINE get\_current\_seeds(iseed1,iseed2)
+
+\mysubsection{Arguments}
+
+Gets the current value of the two integer seeds of the current generator.
+
+\begin{itemize}
+
+\myitem{INTEGER, INTENT(OUT) :: ISEED1.}  The value of the first seed.
+
+\myitem{INTEGER, INTENT(OUT) :: ISEED2.}  The value of the second seed.
+
+\end{itemize}
+
+\mysection{Setting the Current Seeds of the Virtual Random Number Generator}
+
+      SUBROUTINE set\_current\_seeds(iseed1,iseed2)
+
+\mysubsection{Arguments}
+
+Sets the current value of the two integer seeds of the current generator.
+
+
+
+\begin{itemize}
+
+\myitem{INTEGER, INTENT(IN) :: ISEED1.}  The value of the first seed.
+
+\myitem{INTEGER, INTENT(IN) :: ISEED2.}  The value of the second seed.
+
+\end{itemize}
+
+\mysection{Producing  Antithetic Random    Numbers from  the   Current
+Generator}
+
+      SUBROUTINE set\_antithetic(qvalue)
+
+Sets the current generator to produce antithetic values  or not.  If X
+is  the value normally returned  from  a uniform  [0,1] random  number
+generator then  1  - X is the   antithetic value. If  X  is  the value
+normally returned from a uniform [0,N] random  number generator then N
+- 1 -  X is the antithetic value.   All generators  are initialized to
+NOT generate antithetic values.
+
+\mysubsection{Arguments}
+
+\begin{itemize}
+
+\myitem{LOGICAL,  INTENT (IN) ::  qvalue} If .TRUE., antithetic values
+are generated.   If  .FALSE.,   non-antithetic  (ordinary) values  are
+generated.
+
+\end{itemize}
+
+\mysection{Bottom Level Support Routines}
+
+      SUBROUTINE advance\_state(k)
+
+Advances the current state of the seeds of the current virtual random
+number generator by $2^k$ values.
+
+\begin{itemize}
+
+\myitem{INTEGER,  INTENT (IN) ::  k} The seeds of the current virtual
+generator are set ahead by $s^k$ values.
+
+\end{itemize}
+
+      FUNCTION multiply\_modulo(a,s,m)
+
+Returns (A*S) modulo M.
+
+\begin{itemize}
+
+\myitem{INTEGER, INTENT(IN) :: A}  First component of product.  Must
+be $<$ M.
+
+\myitem{INTEGER, INTENT(IN) :: S}  Second component of product.  Must
+be $\le$ M.
+
+\myitem{INTEGER, INTENT(IN) :: M}  Integer with respect to which the
+modulo operation is performed.
+
+\end{itemize}
+
+\end{document}
+
+
