@@ -1,0 +1,432 @@
+NAME
+   fpm(1) - A Fortran package manager and build system
+
+SYNOPSIS
+   fpm SUBCOMMAND [SUBCOMMAND_OPTIONS]
+
+   fpm --help|--version|--list
+
+DESCRIPTION
+   fpm(1) is a package manager that helps you create Fortran projects
+   from source.
+
+   Most significantly fpm(1) lets you draw upon other fpm(1) packages
+   in distributed git(1) repositories as if the packages were a basic
+   part of your default programming environment, as well as letting
+   you share your projects with others in a similar manner.
+
+   All output goes into the directory "build/" which can generally be
+   removed and rebuilt if required. Note that if external packages are
+   being used you need network connectivity to rebuild from scratch.
+
+SUBCOMMANDS
+  Valid fpm(1) subcommands are:
+
+  + build Compile the packages into the "build/" directory.
+  + new   Create a new Fortran package directory with sample files.
+  + update  Update the project dependencies.
+  + run   Run the local package binaries. defaults to all binaries for
+          that release.
+  + test  Run the tests.
+  + help  Alternate method for displaying subcommand help.
+  + list  Display brief descriptions of all subcommands.
+
+  Their syntax is
+
+     build [--release] [--list] [--compiler COMPILER_NAME]
+     new NAME [--lib|--src] [--app] [--test] [--example] [--backfill]
+     update [NAME(s)] [--fetch-only] [--clean]
+     run|test [[--target] NAME(s)] [--release] [--list]
+              [--runner "CMD"] [--compiler COMPILER_NAME] [-- ARGS]
+     help [NAME(s)]
+     list [--list]
+
+SUBCOMMAND OPTIONS
+  --release  Builds or runs in release mode (versus debug mode). fpm(1)
+             Defaults to using common compiler debug flags and building
+             in "build/*_debug/". When this flag is present build
+             output goes into "build/*_release/" and common compiler
+             optimization flags are used.
+  --list     List candidates instead of building or running them. On
+             the fpm(1) command this shows a brief list of subcommands.
+  --runner CMD   Provides a command to prefix program execution paths.
+  --compiler COMPILER_NAME  Compiler name. The environment variable
+                            FPM_COMPILER sets the default.
+  -- ARGS    Arguments to pass to executables.
+
+VALID FOR ALL SUBCOMMANDS
+  --help     Show help text and exit
+  --verbose  Display additional information when available
+  --version  Show version information and exit.
+
+EXAMPLES
+   sample commands:
+
+    fpm new mypackage --app --test
+    fpm build
+    fpm test
+    fpm run
+    fpm new --help
+    fpm run myprogram --release -- -x 10 -y 20 --title "my title"
+
+SEE ALSO
+
+ + The fpm(1) home page is at https://github.com/fortran-lang/fpm
+ + Registered fpm(1) packages are at https://fortran-lang.org/packages
+ + The fpm(1) TOML file format is described at
+   https://github.com/fortran-lang/fpm/blob/master/manifest-reference.md
+
+NAME
+ new(1) - the fpm(1) subcommand to initialize a new project
+SYNOPSIS
+ fpm new NAME [--lib|--src] [--app] [--test] [--example] [--backfill]
+
+ fpm new --help|--version
+
+DESCRIPTION
+ "fpm new" creates and populates a new programming project directory.
+ It
+   o creates a directory with the specified name
+   o runs the command "git init" in that directory
+   o populates the directory with the default project directories
+   o adds sample Fortran source files
+   o adds a ".gitignore" file for ignoring the build/ directory
+     (where fpm-generated output will be placed)
+
+ The basic default file structure is
+
+     NAME/
+       fpm.toml
+       .gitignore
+       src/
+           NAME.f90
+       app/
+           main.f90
+       test/
+           main.f90
+       example/
+           main.f90
+
+ Remember to update the information in the sample "fpm.toml"
+ file with your name and e-mail address.
+
+OPTIONS
+ NAME   the name of the project directory to create. The name
+        must be a valid Fortran name composed of 1 to 63
+        ASCII alphanumeric characters and underscores,
+        starting with a letter.
+
+ The default is to create all of the src/, app/, example/ and test/
+ directories. If any of the following options are specified
+ then only selected subdirectories are generated:
+
+ --lib,--src  create directory src/ and a placeholder module
+              named "NAME.f90" for use with subcommand "build".
+ --app        create directory app/ and a placeholder main
+              program for use with subcommand "run".
+ --test       create directory test/ and a placeholder program
+              for use with the subcommand "test". Note that sans
+              "--lib" it really does not have anything to test.
+ --example    create directory example/ and a placeholder program
+              for use with the subcommand "run --example".
+
+ The default is equivalent to "fpm NAME --lib --app --test --example".
+
+ --backfill   By default the directory must not exist. If this
+              option is present the directory may pre-exist and
+              only subdirectories and files that do not
+              already exist will be created. For example, if you
+              previously entered "fpm new myname --lib" entering
+              "fpm new myname --backfill" will create the missing
+              app/, example/ and test/ directories and programs.
+
+ --help       print this help and exit
+ --version    print program version information and exit
+
+EXAMPLES
+ Sample use
+
+   fpm new myproject  # create new project directory and seed it
+   cd myproject       # Enter the new directory
+   # and run commands such as
+   fpm build
+   fpm run            # run sample application program
+   fpm run --example  # run sample example program
+   fpm test           # run sample  test program
+
+NAME
+ build(1) - the fpm(1) subcommand to build a project
+
+SYNOPSIS
+ fpm build [--release][--compiler COMPILER_NAME] [-list]
+
+ fpm build --help|--version
+
+DESCRIPTION
+ The "fpm build" command
+    o Fetches any dependencies
+    o Scans your sources
+    o Builds them in the proper order
+
+ The Fortran source files are assumed by default to be in
+    o src/     for modules and procedure source
+    o app/     main program(s) for applications
+    o test/    main program(s) and support files for project tests
+    o example/  example program(s) and support files for project demos
+ Changed or new files found are rebuilt. The results are placed in
+ the build/ directory.
+
+ Non-default pathnames and remote dependencies are used if
+ specified in the "fpm.toml" file.
+
+OPTIONS
+ --release  build in build/*_release instead of build/*_debug with
+            high optimization instead of full debug options.
+ --compiler COMPILER_NAME  Specify a compiler name. The default is
+                           "gfortran" unless set by the environment
+                           variable FPM_COMPILER.
+ --list     list candidates instead of building or running them
+ --help     print this help and exit
+ --version  print program version information and exit
+
+EXAMPLES
+ Sample commands:
+
+  fpm build           # build with debug options
+  fpm build --release # build with high optimization
+
+NAME
+ run(1) - the fpm(1) subcommand to run project applications
+
+SYNOPSIS
+ fpm run [[--target] NAME(s)][--release][--compiler COMPILER_NAME]
+         [--runner "CMD"] [--example] [--list][-- ARGS]
+
+ fpm run --help|--version
+
+DESCRIPTION
+ Run applications you have built in your fpm(1) project.
+ By default applications specified in as "executable" in your package
+ manifest are used, alternatively also demonstration programs under
+ "example" can be used with this subcommand.
+
+OPTIONS
+ --target NAME(s)  optional list of specific names to execute.
+                   The default is to run all the applications in app/
+                   or the programs listed in the "fpm.toml" file.
+ --example  run example programs instead of applications
+ --release  selects the optimized build instead of the debug
+            build.
+ --compiler COMPILER_NAME  Specify a compiler name. The default is
+                           "gfortran" unless set by the environment
+                           variable FPM_COMPILER.
+ --runner CMD  A command to prefix the program execution paths with.
+               see "fpm help runner" for further details.
+ --list     list candidates instead of building or running them
+ -- ARGS    optional arguments to pass to the program(s).
+            The same arguments are passed to all names
+            specified.
+
+EXAMPLES
+ fpm(1) "run" project applications
+
+  # run default programs in /app or as specified in "fpm.toml"
+  fpm run
+
+  # run default programs in /app or as specified in "fpm.toml"
+  # using the compiler command "f90".
+  fpm run --compiler f90
+
+  # run example and demonstration programs instead of the default
+  # application programs (specified in "fpm.toml")
+  fpm run --example
+
+  # run a specific program and pass arguments to the command
+  fpm run mytest -- -x 10 -y 20 --title "my title line"
+
+  # run production version of two applications
+  fpm run --target prg1,prg2 --release
+
+  # install executables in directory (assuming install(1) exists)
+  fpm run --runner 'install -b -m 0711 -p -t /usr/local/bin'
+
+NAME
+ test(1) - the fpm(1) subcommand to run project tests
+
+SYNOPSIS
+ fpm test [[--target] NAME(s)][--release][--compiler COMPILER_NAME ]
+          [--runner "CMD"] [--list][-- ARGS]
+
+ fpm test --help|--version
+
+DESCRIPTION
+ Run applications you have built to test your project.
+
+OPTIONS
+ --target NAME(s)  optional list of specific test names to execute.
+                   The default is to run all the tests in test/
+                   or the tests listed in the "fpm.toml" file.
+ --release  selects the optimized build instead of the debug
+            build.
+ --compiler COMPILER_NAME  Specify a compiler name. The default is
+                           "gfortran" unless set by the environment
+                           variable FPM_COMPILER.
+ --runner CMD  A command to prefix the program execution paths with.
+               see "fpm help runner" for further details.
+ --list     list candidates instead of building or running them
+ -- ARGS    optional arguments to pass to the test program(s).
+            The same arguments are passed to all test names
+            specified.
+
+EXAMPLES
+run tests
+
+ # run default tests in /test or as specified in "fpm.toml"
+ fpm test
+
+ # run using compiler command "f90"
+ fpm test --compiler f90
+
+ # run a specific test and pass arguments to the command
+ fpm test mytest -- -x 10 -y 20 --title "my title line"
+
+ fpm test tst1 tst2 --release # run production version of two tests
+
+NAME
+   --runner(1) - a shared option for specifying an application to launch
+                 executables.
+
+SYNOPSIS
+   fpm run|test --runner CMD ... -- SUFFIX_OPTIONS
+
+DESCRIPTION
+   The --runner option allows specifying a program to launch
+   executables selected via the fpm(1) subcommands "run" and "test". This
+   gives easy recourse to utilities such as debuggers and other tools
+   that wrap other executables.
+
+   These external commands are not part of fpm(1) itself as they vary
+   from platform to platform or require independent installation.
+
+OPTION
+ --runner 'CMD'  quoted command used to launch the fpm(1) executables.
+               Available for both the "run" and "test" subcommands.
+
+ -- SUFFIX_OPTIONS  additional options to suffix the command CMD and executable
+                    file names with.
+EXAMPLES
+   Use cases for 'fpm run|test --runner "CMD"' include employing
+   the following common GNU/Linux and Unix commands:
+
+ INTERROGATE
+    + nm - list symbols from object files
+    + size - list section sizes and total size.
+    + ldd - print shared object dependencies
+    + ls - list directory contents
+    + stat - display file or file system status
+    + file - determine file type
+ PERFORMANCE AND DEBUGGING
+    + gdb - The GNU Debugger
+    + valgrind - a suite of tools for debugging and profiling
+    + time - time a simple command or give resource usage
+    + timeout - run a command with a time limit
+ COPY
+    + install - copy files and set attributes
+    + tar - an archiving utility
+ ALTER
+    + rm - remove files or directories
+    + chmod - change permissions of a file
+    + strip - remove unnecessary information from strippable files
+
+ For example
+
+  fpm test --runner gdb
+  fpm run --runner "tar cvfz $HOME/bundle.tgz"
+  fpm run --runner ldd
+  fpm run --runner strip
+  fpm run --runner 'cp -t /usr/local/bin'
+
+  # options after executable name can be specified after the -- option
+  fpm --runner cp run -- /usr/local/bin/
+  # generates commands of the form "cp $FILENAME /usr/local/bin/"
+
+  # bash(1) alias example:
+  alias fpm-install=\
+  "fpm run --release --runner 'install -vbp -m 0711 -t ~/.local/bin'"
+  fpm-install
+
+NAME
+ fpm-update(1) - manage project dependencies
+
+SYNOPSIS
+ fpm update [--fetch-only] [--clean] [--verbose] [NAME(s)]
+
+DESCRIPTION
+ Manage and update project dependencies. If no dependency names are
+ provided all the dependencies are updated automatically.
+
+OPTIONS
+ --fetch-only  Only fetch dependencies, do not update existing projects
+ --clean       Do not use previous dependency cache
+ --verbose     Show additional printout
+
+SEE ALSO
+ The fpm(1) home page at https://github.com/fortran-lang/fpm
+
+NAME
+ list(1) - list summary of fpm(1) subcommands
+
+SYNOPSIS
+ fpm list [-list]
+
+ fpm list --help|--version
+
+DESCRIPTION
+ Display a short description for each fpm(1) subcommand.
+
+OPTIONS
+ --list     display a list of command options as well. This is the
+            same output as generated by "fpm --list".
+
+EXAMPLES
+ display a short list of fpm(1) subcommands
+
+  fpm list
+  fpm --list
+
+NAME
+   help(1) - the fpm(1) subcommand to display help
+
+SYNOPSIS
+   fpm help [fpm] [new] [build] [run] [test] [help] [version] [manual]
+   [runner]
+
+DESCRIPTION
+   The "fpm help" command is an alternative to the --help parameter
+   on the fpm(1) command and its subcommands.
+
+OPTIONS
+   NAME(s)    A list of topic names to display. All the subcommands
+              have their own page (new, build, run, test, ...).
+
+              The special name "manual" displays all the fpm(1)
+              built-in documentation.
+
+              The default is to display help for the fpm(1) command
+              itself.
+
+EXAMPLES
+   Sample usage:
+
+     fpm help           # general fpm(1) command help
+     fpm help version   # show program version
+     fpm help new       # display help for "new" subcommand
+     fpm help manual    # All fpm(1) built-in documentation
+
+
+Version:     0.1.2, alpha
+Program:     fpm(1)
+Description: A Fortran package manager and build system
+Home Page:   https://github.com/fortran-lang/fpm
+License:     MIT
+OS Type:     Linux
