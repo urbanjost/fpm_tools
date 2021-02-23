@@ -1,0 +1,22 @@
+name = "shell"
+version = "0.1.0"
+license = "license"
+author = "Jane Doe"
+maintainer = "jane.doe@example.com"
+copyright = "Copyright 2021, Jane Doe"
+[build]
+auto-executables = true
+auto-tests = true
+auto-examples = true
+[install]
+library = false
+
+[[executable]]
+   name="fpm-shell"
+   source-dir="app"
+   main="fpm-shell.f90"
+   [executable.dependencies]
+   M_msg          = { git = "https://github.com/urbanjost/M_msg.git" }
+   M_CLI2         = { git = "https://github.com/urbanjost/M_CLI2.git" }
+   M_history      = { git = "https://github.com/urbanjost/M_history.git" }
+   M_system       = { git = "https://github.com/urbanjost/M_system.git" }

@@ -2,6 +2,8 @@ program fpm_shell
 use :: M_journal,   only : journal
 use :: M_history,   only : redo
 use :: M_cli2,      only : set_args ,sget,rget,lget,iget, rgets,igets,sgets, unnamed
+use :: M_system,    only : system_getenv
+! extensions: chdir
 implicit NONE
 integer,parameter             :: dp=kind(0.0d0)         ! calculator returns double precision values
 integer,parameter             :: iclen_calc=256
@@ -15,7 +17,7 @@ character(len=4096)           :: message
 character(len=:),allocatable  :: oldread
 integer                       :: ifound
    oldread=''
-   call set_args(' -read " " -replay F')                   ! parse command line arguments
+   call set_args(' -read " " -replay " "')                 ! parse command line arguments
    if(sget('read').ne.' ')then                             ! found an initial file to read
       iin=iin+10
       open(unit=iin,file=trim(sget('read')),iostat=ios)
@@ -56,9 +58,9 @@ integer                       :: ifound
          call journal('*fpm-shell*: that''s all folks ...')
          stop
       case(' ')                                                 ! ignore blank lines
-      case('run','install','test','build','new','list','update')  
+      case('run','install','test','build','new','list','update')
           call execute_command_line( 'fpm '//linet )            ! call fpm
-      case('cd')                                        
+      case('cd')
           call chdir(linet(ii+1:))                              ! gfortran fortran extension
       case('help')                                              ! display help
           call execute_command_line( 'fpm '//linet//'|more' )   ! call fpm

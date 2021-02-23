@@ -1,10 +1,17 @@
+ 
 !>>>>> ././src/fpm_environment.f90
 module fpm_environment
+use,intrinsic :: iso_fortran_env, only : stdin=>input_unit,   &
+                                       & stdout=>output_unit, &
+                                       & stderr=>error_unit
     implicit none
     private
     public :: get_os_type
+    public :: os_is_unix
     public :: run
     public :: get_env
+    public :: get_command_arguments_quoted
+    public :: separator
 
     integer, parameter, public :: OS_UNKNOWN = 0
     integer, parameter, public :: OS_LINUX   = 1
@@ -106,10 +113,28 @@ contains
         end if
     end function get_os_type
 
-    subroutine run(cmd)
+    logical function os_is_unix(os) result(unix)
+        integer, intent(in), optional :: os
+        integer :: build_os
+        if (present(os)) then
+            build_os = os
+        else
+            build_os = get_os_type()
+        end if
+        unix = os /= OS_WINDOWS
+    end function os_is_unix
+
+    subroutine run(cmd,echo)
         character(len=*), intent(in) :: cmd
+        logical,optional,intent(in)  :: echo
         integer :: stat
-        print *, '+ ', cmd
+        logical :: echo_local
+        if(present(echo))then
+           echo_local=echo
+        else
+           echo_local=.true.
+        endif
+        if(echo_local) print *, '+ ', cmd
         call execute_command_line(cmd, exitstat=stat)
         if (stat /= 0) then
             print *, 'Command failed'
@@ -149,6 +174,130 @@ contains
         if(VALUE.eq.''.and.present(DEFAULT))VALUE=DEFAULT
      end function get_env
 
+    function get_command_arguments_quoted() result(args)
+    character(len=:),allocatable :: args
+    character(len=:),allocatable :: arg
+    character(len=1)             :: quote
+    integer                      :: ilength, istatus, i
+    ilength=0
+    args=''
+        quote=merge('"',"'",separator().eq.'\')
+        do i=2,command_argument_count() ! look at all arguments after subcommand
+            call get_command_argument(number=i,length=ilength,status=istatus)
+            if(istatus /= 0) then
+                write(stderr,'(*(g0,1x))')'<ERROR>*get_command_arguments_stack* error obtaining argument ',i
+                exit
+            else
+                if(allocated(arg))deallocate(arg)
+                allocate(character(len=ilength) :: arg)
+                call get_command_argument(number=i,value=arg,length=ilength,status=istatus)
+                if(istatus /= 0) then
+                    write(stderr,'(*(g0,1x))')'<ERROR>*get_command_arguments_stack* error obtaining argument ',i
+                    exit
+                elseif(ilength.gt.0)then
+                    if(index(arg//' ','-').ne.1)then
+                        args=args//quote//arg//quote//' '
+                    else
+                        args=args//arg//' '
+                    endif
+                else
+                    args=args//repeat(quote,2)//' '
+                endif
+             endif
+         enddo
+    end function get_command_arguments_quoted
+
+function separator() result(sep)
+!>
+!!##NAME
+!!    separator(3f) - [M_io:ENVIRONMENT] try to determine pathname directory separator character
+!!    (LICENSE:PD)
+!!
+!!##SYNOPSIS
+!!
+!!    function separator() result(sep)
+!!
+!!     character(len=1) :: sep
+!!
+!!##DESCRIPTION
+!!    First using the name the program was invoked with, then the name
+!!    returned by an INQUIRE(3f) of that name, then ".\NAME" and "./NAME"
+!!    try to determine the separator character used to separate directory
+!!    names from file basenames.
+!!
+!!    If a slash or backslash is not found in the name, the environment
+!!    variable PATH is examined first for a backslash, then a slash.
+!!
+!!    Can be very system dependent. If the queries fail the default returned
+!!    is "/".
+!!
+!!##EXAMPLE
+!!
+!!   sample usage
+!!
+!!    program demo_separator
+!!    use M_io, only : separator
+!!    implicit none
+!!       write(*,*)'separator=',separator()
+!!    end program demo_separator
+
+! use the pathname returned as arg0 to determine pathname separator
+implicit none
+character(len=:),allocatable :: arg0
+integer                      :: arg0_length
+integer                      :: istat
+logical                      :: existing
+character(len=1)             :: sep
+!*ifort_bug*!character(len=1),save        :: sep_cache=' '
+character(len=4096)          :: name
+character(len=:),allocatable :: fname
+
+   !*ifort_bug*!   if(sep_cache.ne.' ')then  ! use cached value. NOTE:  A parallel code might theoretically use multiple OS
+   !*ifort_bug*!      sep=sep_cache
+   !*ifort_bug*!      return
+   !*ifort_bug*!   endif
+
+   arg0_length=0
+   name=' '
+   call get_command_argument(0,length=arg0_length,status=istat)
+   if(allocated(arg0))deallocate(arg0)
+   allocate(character(len=arg0_length) :: arg0)
+   call get_command_argument(0,arg0,status=istat)
+   ! check argument name
+   if(index(arg0,'\').ne.0)then
+      sep='\'
+   elseif(index(arg0,'/').ne.0)then
+      sep='/'
+   else
+      ! try name returned by INQUIRE(3f)
+      existing=.false.
+      name=' '
+      inquire(file=arg0,iostat=istat,exist=existing,name=name)
+      if(index(name,'\').ne.0)then
+         sep='\'
+      elseif(index(name,'/').ne.0)then
+         sep='/'
+      else
+         ! well, try some common syntax and assume in current directory
+         fname='.\'//arg0
+         inquire(file=fname,iostat=istat,exist=existing)
+         if(existing)then
+            sep='\'
+         else
+            fname='./'//arg0
+            inquire(file=fname,iostat=istat,exist=existing)
+            if(existing)then
+               sep='/'
+            else ! check environment variable PATH
+               sep=merge('\','/',index(get_env('PATH'),'\').ne.0)
+               !*!write(*,*)'<WARNING>unknown system directory path separator'
+            endif
+         endif
+      endif
+   endif
+   !*ifort_bug*!sep_cache=sep
+end function separator
+
 end module fpm_environment
  
  
@@ -159,11 +308,20 @@ implicit none
 
 private
 public :: f_string, lower, split, str_ends_with, string_t
-public :: string_array_contains, string_cat, operator(.in.), fnv_1a
+public :: string_array_contains, string_cat, len_trim, operator(.in.), fnv_1a
+public :: replace, resize, str, join, glob
 
 type string_t
     character(len=:), allocatable :: s
 end type
+
+interface len_trim
+    module procedure :: string_len_trim
+end interface len_trim
+
+interface resize
+  module procedure :: resize_string
+end interface
 
 interface operator(.in.)
     module procedure string_array_contains
@@ -174,9 +332,18 @@ interface fnv_1a
     procedure :: fnv_1a_string_t
 end interface fnv_1a
 
+interface str_ends_with
+    procedure :: str_ends_with_str
+    procedure :: str_ends_with_any
+end interface str_ends_with
+
+interface str
+    module procedure str_int, str_int64, str_logical
+end interface
+
 contains
 
-logical function str_ends_with(s, e) result(r)
+pure logical function str_ends_with_str(s, e) result(r)
     character(*), intent(in) :: s, e
     integer :: n1, n2
     n1 = len(s)-len(e)+1
@@ -186,7 +353,23 @@ logical function str_ends_with(s, e) result(r)
     else
         r = (s(n1:n2) == e)
     end if
-end function str_ends_with
+end function str_ends_with_str
+
+pure logical function str_ends_with_any(s, e) result(r)
+    character(*), intent(in) :: s
+    character(*), intent(in) :: e(:)
+
+    integer :: i
+
+    r = .true.
+    do i=1,size(e)
+
+        if (str_ends_with(s,trim(e(i)))) return
+
+    end do
+    r = .false.
+
+end function str_ends_with_any
 
 function f_string(c_string)
     use iso_c_binding
@@ -205,11 +388,11 @@ function f_string(c_string)
     do i=1,n
       f_string(i:i) = c_string(i)
     end do
-  
+
 end function f_string
 
 
-!> Hash a character(*) string of default kind 
+!> Hash a character(*) string of default kind
 pure function fnv_1a_char(input, seed) result(hash)
     character(*), intent(in) :: input
     integer(int64), intent(in), optional :: seed
@@ -232,7 +415,7 @@ pure function fnv_1a_char(input, seed) result(hash)
 end function fnv_1a_char
 
 
-!> Hash a string_t array of default kind 
+!> Hash a string_t array of default kind
 pure function fnv_1a_string_t(input, seed) result(hash)
     type(string_t), intent(in) :: input(:)
     integer(int64), intent(in), optional :: seed
@@ -295,14 +478,14 @@ logical function string_array_contains(search_string,array)
 
 end function string_array_contains
 
-!> Concatenate an array of type(string_t) into 
+!> Concatenate an array of type(string_t) into
 !>  a single character
 function string_cat(strings,delim) result(cat)
     type(string_t), intent(in) :: strings(:)
     character(*), intent(in), optional :: delim
     character(:), allocatable :: cat
 
-    integer :: i,n
+    integer :: i
     character(:), allocatable :: delim_str
 
     if (size(strings) < 1) then
@@ -320,17 +503,29 @@ function string_cat(strings,delim) result(cat)
     do i=2,size(strings)
 
         cat = cat//delim_str//strings(i)%s
-        
+
     end do
 
 end function string_cat
+
+!> Determine total trimmed length of `string_t` array
+pure function string_len_trim(strings) result(n)
+    type(string_t), intent(in) :: strings(:)
+    integer :: i, n
+
+    n = 0
+    do i=1,size(strings)
+        n = n + len_trim(strings(i)%s)
+    end do
+
+end function string_len_trim
 
 subroutine split(input_line,array,delimiters,order,nulls)
     ! parse string on delimiter characters and store tokens into an allocatable array"
     ! Author: John S. Urban
     ! License: Public Domain
 
-    
+
     !  given a line of structure " par1 par2 par3 ... parn " store each par(n) into a separate variable in array.
     !    o by default adjacent delimiters in the input string do not create an empty string in the output array
     !    o no quoting of delimiters is supported
@@ -339,7 +534,7 @@ subroutine split(input_line,array,delimiters,order,nulls)
     character(len=*),optional,intent(in)     :: order       ! order of output array sequential|[reverse|right]
     character(len=*),optional,intent(in)     :: nulls       ! return strings composed of delimiters or not ignore|return|ignoreend
     character(len=:),allocatable,intent(out) :: array(:)    ! output array of tokens
-    
+
     integer                       :: n                      ! max number of strings INPUT_LINE could split into if all delimiter
     integer,allocatable           :: ibegin(:)              ! positions in input string where tokens start
     integer,allocatable           :: iterm(:)               ! positions in input string where tokens end
@@ -356,7 +551,7 @@ subroutine split(input_line,array,delimiters,order,nulls)
     integer                       :: inotnull               ! count strings not composed of delimiters
     integer                       :: ireturn                ! number of tokens returned
     integer                       :: imax                   ! length of longest token
-    
+
     ! decide on value for optional DELIMITERS parameter
     if (present(delimiters)) then                                     ! optional delimiter list was present
         if(delimiters.ne.'')then                                       ! if DELIMITERS was specified and not null use it
@@ -443,6 +638,540 @@ subroutine split(input_line,array,delimiters,order,nulls)
     enddo
 end subroutine split
 
+pure function replace(string, charset, target_char) result(res)
+    ! Returns string with characters in charset replaced with target_char.
+    character(*), intent(in) :: string
+    character, intent(in) :: charset(:), target_char
+    character(len(string)) :: res
+    integer :: n
+    res = string
+    do n = 1, len(string)
+        if (any(string(n:n) == charset)) then
+            res(n:n) = target_char
+        end if
+    end do
+end function replace
+
+subroutine resize_string(list, n)
+  !> Instance of the array to be resized
+  type(string_t), allocatable, intent(inout) :: list(:)
+  !> Dimension of the final array size
+  integer, intent(in), optional :: n
+
+  type(string_t), allocatable :: tmp(:)
+  integer :: this_size, new_size, i
+  integer, parameter :: initial_size = 16
+
+  if (allocated(list)) then
+    this_size = size(list, 1)
+    call move_alloc(list, tmp)
+  else
+    this_size = initial_size
+  end if
+
+  if (present(n)) then
+    new_size = n
+  else
+    new_size = this_size + this_size/2 + 1
+  end if
+
+  allocate(list(new_size))
+
+  if (allocated(tmp)) then
+    this_size = min(size(tmp, 1), size(list, 1))
+    do i = 1, this_size
+      call move_alloc(tmp(i)%s, list(i)%s)
+    end do
+    deallocate(tmp)
+  end if
+
+end subroutine resize_string
+
+pure function join(str,sep,trm,left,right) result (string)
+
+!> M_strings::join(3f): append an array of character variables with specified separator into a single CHARACTER variable
+!>
+!>##NAME
+!>    join(3f) - [M_strings:EDITING] append CHARACTER variable array into
+!>    a single CHARACTER variable with specified separator
+!>    (LICENSE:PD)
+!>
+!>##SYNOPSIS
+!>
+!>    pure function join(str,sep,trm,left,right) result (string)
+!>
+!>     character(len=*),intent(in)          :: str(:)
+!>     character(len=*),intent(in),optional :: sep
+!>     logical,intent(in),optional          :: trm
+!>     character(len=*),intent(in),optional :: right
+!>     character(len=*),intent(in),optional :: left
+!>     character(len=:),allocatable         :: string
+!>
+!>##DESCRIPTION
+!>      JOIN(3f) appends the elements of a CHARACTER array into a single
+!>      CHARACTER variable, with elements 1 to N joined from left to right.
+!>      By default each element is trimmed of trailing spaces and the
+!>      default separator is a null string.
+!>
+!>##OPTIONS
+!>      STR(:)  array of CHARACTER variables to be joined
+!>      SEP     separator string to place between each variable. defaults
+!>              to a null string.
+!>      LEFT    string to place at left of each element
+!>      RIGHT   string to place at right of each element
+!>      TRM     option to trim each element of STR of trailing
+!>              spaces. Defaults to .TRUE.
+!>
+!>##RESULT
+!>      STRING  CHARACTER variable composed of all of the elements of STR()
+!>              appended together with the optional separator SEP placed
+!>              between the elements and optional left and right elements.
+!>
+!>##EXAMPLE
+!>
+!>  Sample program:
+!>
+!>   program demo_join
+!>   use M_strings, only: join
+!>   implicit none
+!>   character(len=:),allocatable  :: s(:)
+!>   character(len=:),allocatable  :: out
+!>   integer                       :: i
+!>     s=[character(len=10) :: 'United',' we',' stand,', &
+!>     & ' divided',' we fall.']
+!>     out=join(s)
+!>     write(*,'(a)') out
+!>     write(*,'(a)') join(s,trm=.false.)
+!>     write(*,'(a)') (join(s,trm=.false.,sep='|'),i=1,3)
+!>     write(*,'(a)') join(s,sep='<>')
+!>     write(*,'(a)') join(s,sep=';',left='[',right=']')
+!>     write(*,'(a)') join(s,left='[',right=']')
+!>     write(*,'(a)') join(s,left='>>')
+!>   end program demo_join
+!>
+!>  Expected output:
+!>
+!>   United we stand, divided we fall.
+!>   United     we        stand,    divided   we fall.
+!>   United    | we       | stand,   | divided  | we fall. |
+!>   United    | we       | stand,   | divided  | we fall. |
+!>   United    | we       | stand,   | divided  | we fall. |
+!>   United<> we<> stand,<> divided<> we fall.<>
+!>   [United];[ we];[ stand,];[ divided];[ we fall.];
+!>   [United][ we][ stand,][ divided][ we fall.]
+!>   >>United>> we>> stand,>> divided>> we fall.
+!>
+!>##AUTHOR
+!>    John S. Urban
+!>
+!>##LICENSE
+!>    Public Domain
+
+character(len=*),intent(in)           :: str(:)
+character(len=*),intent(in),optional  :: sep, right, left
+logical,intent(in),optional           :: trm
+character(len=:),allocatable          :: string
+integer                               :: i
+logical                               :: trm_local
+character(len=:),allocatable          :: sep_local, left_local, right_local
+
+   if(present(sep))then    ;  sep_local=sep      ;  else  ;  sep_local=''      ;  endif
+   if(present(trm))then    ;  trm_local=trm      ;  else  ;  trm_local=.true.  ;  endif
+   if(present(left))then   ;  left_local=left    ;  else  ;  left_local=''     ;  endif
+   if(present(right))then  ;  right_local=right  ;  else  ;  right_local=''    ;  endif
+
+   string=''
+   do i = 1,size(str)
+      if(trm_local)then
+         string=string//left_local//trim(str(i))//right_local//sep_local
+      else
+         string=string//left_local//str(i)//right_local//sep_local
+      endif
+   enddo
+end function join
+
+function glob(tame,wild)
+!>
+!!##NAME
+!!    glob(3f) - [M_strings:COMPARE] compare given string for match to
+!!    pattern which may contain wildcard characters
+!!    (LICENSE:PD)
+!!
+!!##SYNOPSIS
+!!
+!!    logical function glob(string, pattern )
+!!
+!!     character(len=*),intent(in) :: string
+!!     character(len=*),intent(in) :: pattern
+!!
+!!##DESCRIPTION
+!!    glob(3f) compares given STRING for match to PATTERN which may
+!!    contain wildcard characters.
+!!
+!!    In this version to get a match the entire string must be described
+!!    by PATTERN. Trailing whitespace is significant, so trim the input
+!!    string to have trailing whitespace ignored.
+!!
+!!##OPTIONS
+!!    string   the input string to test to see if it contains the pattern.
+!!    pattern  the following simple globbing options are available
+!!
+!!             o "?" matching any one character
+!!             o "*" matching zero or more characters.
+!!               Do NOT use adjacent asterisks.
+!!             o Both strings may have trailing spaces which
+!!               are ignored.
+!!             o There is no escape character, so matching strings with
+!!               literal question mark and asterisk is problematic.
+!!
+!!##EXAMPLES
+!!
+!!   Example program
+!!
+!!    program demo_glob
+!!    implicit none
+!!    ! This main() routine passes a bunch of test strings
+!!    ! into the above code.  In performance comparison mode,
+!!    ! it does that over and over. Otherwise, it does it just
+!!    ! once. Either way, it outputs a passed/failed result.
+!!    !
+!!    integer :: nReps
+!!    logical :: allpassed
+!!    integer :: i
+!!     allpassed = .true.
+!!
+!!     nReps = 10000
+!!     ! Can choose as many repetitions as you're expecting
+!!     ! in the real world.
+!!     nReps = 1
+!!
+!!     do i=1,nReps
+!!      ! Cases with repeating character sequences.
+!!      allpassed=allpassed .and. test("a*abab", "a*b", .true.)
+!!      !!cycle
+!!      allpassed=allpassed .and. test("ab", "*?", .true.)
+!!      allpassed=allpassed .and. test("abc", "*?", .true.)
+!!      allpassed=allpassed .and. test("abcccd", "*ccd", .true.)
+!!      allpassed=allpassed .and. test("bLah", "bLaH", .false.)
+!!      allpassed=allpassed .and. test("mississippi", "*sip*", .true.)
+!!      allpassed=allpassed .and. &
+!!       & test("xxxx*zzzzzzzzy*f", "xxx*zzy*f", .true.)
+!!      allpassed=allpassed .and. &
+!!       & test("xxxx*zzzzzzzzy*f", "xxxx*zzy*fffff", .false.)
+!!      allpassed=allpassed .and. &
+!!       & test("mississipissippi", "*issip*ss*", .true.)
+!!      allpassed=allpassed .and. &
+!!       & test("xxxxzzzzzzzzyf", "xxxx*zzy*fffff", .false.)
+!!      allpassed=allpassed .and. &
+!!       & test("xxxxzzzzzzzzyf", "xxxx*zzy*f", .true.)
+!!      allpassed=allpassed .and. test("xyxyxyzyxyz", "xy*z*xyz", .true.)
+!!      allpassed=allpassed .and. test("xyxyxyxyz", "xy*xyz", .true.)
+!!      allpassed=allpassed .and. test("mississippi", "mi*sip*", .true.)
+!!      allpassed=allpassed .and. test("ababac", "*abac*", .true.)
+!!      allpassed=allpassed .and. test("aaazz", "a*zz*", .true.)
+!!      allpassed=allpassed .and. test("a12b12", "*12*23", .false.)
+!!      allpassed=allpassed .and. test("a12b12", "a12b", .false.)
+!!      allpassed=allpassed .and. test("a12b12", "*12*12*", .true.)
+!!
+!!      ! Additional cases where the '*' char appears in the tame string.
+!!      allpassed=allpassed .and. test("*", "*", .true.)
+!!      allpassed=allpassed .and. test("a*r", "a*", .true.)
+!!      allpassed=allpassed .and. test("a*ar", "a*aar", .false.)
+!!
+!!      ! More double wildcard scenarios.
+!!      allpassed=allpassed .and. test("XYXYXYZYXYz", "XY*Z*XYz", .true.)
+!!      allpassed=allpassed .and. test("missisSIPpi", "*SIP*", .true.)
+!!      allpassed=allpassed .and. test("mississipPI", "*issip*PI", .true.)
+!!      allpassed=allpassed .and. test("xyxyxyxyz", "xy*xyz", .true.)
+!!      allpassed=allpassed .and. test("miSsissippi", "mi*sip*", .true.)
+!!      allpassed=allpassed .and. test("miSsissippi", "mi*Sip*", .false.)
+!!      allpassed=allpassed .and. test("abAbac", "*Abac*", .true.)
+!!      allpassed=allpassed .and. test("aAazz", "a*zz*", .true.)
+!!      allpassed=allpassed .and. test("A12b12", "*12*23", .false.)
+!!      allpassed=allpassed .and. test("a12B12", "*12*12*", .true.)
+!!      allpassed=allpassed .and. test("oWn", "*oWn*", .true.)
+!!
+!!      ! Completely tame (no wildcards) cases.
+!!      allpassed=allpassed .and. test("bLah", "bLah", .true.)
+!!
+!!      ! Simple mixed wildcard tests suggested by IBMer Marlin Deckert.
+!!      allpassed=allpassed .and. test("a", "*?", .true.)
+!!
+!!      ! More mixed wildcard tests including coverage for false positives.
+!!      allpassed=allpassed .and. test("a", "??", .false.)
+!!      allpassed=allpassed .and. test("ab", "?*?", .true.)
+!!      allpassed=allpassed .and. test("ab", "*?*?*", .true.)
+!!      allpassed=allpassed .and. test("abc", "?**?*?", .true.)
+!!      allpassed=allpassed .and. test("abc", "?**?*&?", .false.)
+!!      allpassed=allpassed .and. test("abcd", "?b*??", .true.)
+!!      allpassed=allpassed .and. test("abcd", "?a*??", .false.)
+!!      allpassed=allpassed .and. test("abcd", "?**?c?", .true.)
+!!      allpassed=allpassed .and. test("abcd", "?**?d?", .false.)
+!!      allpassed=allpassed .and. test("abcde", "?*b*?*d*?", .true.)
+!!
+!!      ! Single-character-match cases.
+!!      allpassed=allpassed .and. test("bLah", "bL?h", .true.)
+!!      allpassed=allpassed .and. test("bLaaa", "bLa?", .false.)
+!!      allpassed=allpassed .and. test("bLah", "bLa?", .true.)
+!!      allpassed=allpassed .and. test("bLaH", "?Lah", .false.)
+!!      allpassed=allpassed .and. test("bLaH", "?LaH", .true.)
+!!
+!!      ! Many-wildcard scenarios.
+!!      allpassed=allpassed .and. test(&
+!!      &"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&
+!!      &aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab",&
+!!      &"a*a*a*a*a*a*aa*aaa*a*a*b",&
+!!      &.true.)
+!!      allpassed=allpassed .and. test(&
+!!      &"abababababababababababababababababababaacacacacacacac&
+!!      &adaeafagahaiajakalaaaaaaaaaaaaaaaaaffafagaagggagaaaaaaaab",&
+!!      &"*a*b*ba*ca*a*aa*aaa*fa*ga*b*",&
+!!      &.true.)
+!!      allpassed=allpassed .and. test(&
+!!      &"abababababababababababababababababababaacacacacacaca&
+!!      &cadaeafagahaiajakalaaaaaaaaaaaaaaaaaffafagaagggagaaaaaaaab",&
+!!      &"*a*b*ba*ca*a*x*aaa*fa*ga*b*",&
+!!      &.false.)
+!!      allpassed=allpassed .and. test(&
+!!      &"abababababababababababababababababababaacacacacacacacad&
+!!      &aeafagahaiajakalaaaaaaaaaaaaaaaaaffafagaagggagaaaaaaaab",&
+!!      &"*a*b*ba*ca*aaaa*fa*ga*gggg*b*",&
+!!      &.false.)
+!!      allpassed=allpassed .and. test(&
+!!      &"abababababababababababababababababababaacacacacacacacad&
+!!      &aeafagahaiajakalaaaaaaaaaaaaaaaaaffafagaagggagaaaaaaaab",&
+!!      &"*a*b*ba*ca*aaaa*fa*ga*ggg*b*",&
+!!      &.true.)
+!!      allpassed=allpassed .and. test("aaabbaabbaab", "*aabbaa*a*", .true.)
+!!      allpassed=allpassed .and. &
+!!      test("a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*",&
+!!      &"a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*", .true.)
+!!      allpassed=allpassed .and. test("aaaaaaaaaaaaaaaaa",&
+!!      &"*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*", .true.)
+!!      allpassed=allpassed .and. test("aaaaaaaaaaaaaaaa",&
+!!      &"*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*", .false.)
+!!      allpassed=allpassed .and. test(&
+!!      &"abc*abcd*abcde*abcdef*abcdefg*abcdefgh*abcdefghi*abcdefghij&
+!!      &*abcdefghijk*abcdefghijkl*abcdefghijklm*abcdefghijklmn",&
+!!      & "abc*abc*abc*abc*abc*abc*abc*abc*abc*abc*abc*abc*abc*abc&
+!!      &*abc*abc*abc*",&
+!!      &.false.)
+!!      allpassed=allpassed .and. test(&
+!!      &"abc*abcd*abcde*abcdef*abcdefg*abcdefgh*abcdefghi*abcdefghij&
+!!      &*abcdefghijk*abcdefghijkl*abcdefghijklm*abcdefghijklmn",&
+!!      &"abc*abc*abc*abc*abc*abc*abc*abc*abc*abc*abc*abc*",&
+!!      &.true.)
+!!      allpassed=allpassed .and. test("abc*abcd*abcd*abc*abcd",&
+!!      &"abc*abc*abc*abc*abc", .false.)
+!!      allpassed=allpassed .and. test( "abc*abcd*abcd*abc*abcd*abcd&
+!!      &*abc*abcd*abc*abc*abcd", &
+!!      &"abc*abc*abc*abc*abc*abc*abc*abc*abc*abc*abcd",&
+!!      &.true.)
+!!      allpassed=allpassed .and. test("abc",&
+!!      &"********a********b********c********", .true.)
+!!      allpassed=allpassed .and.&
+!!      &test("********a********b********c********", "abc", .false.)
+!!      allpassed=allpassed .and. &
+!!      &test("abc", "********a********b********b********", .false.)
+!!      allpassed=allpassed .and. test("*abc*", "***a*b*c***", .true.)
+!!
+!!      ! A case-insensitive algorithm test.
+!!      ! allpassed=allpassed .and. test("mississippi", "*issip*PI", .true.)
+!!     enddo
+!!
+!!     if (allpassed)then
+!!        write(*,'(a)')"Passed",nReps
+!!     else
+!!        write(*,'(a)')"Failed"
+!!     endif
+!!    contains
+!!    ! This is a test program for wildcard matching routines.
+!!    ! It can be used either to test a single routine for correctness,
+!!    ! or to compare the timings of two (or more) different wildcard
+!!    ! matching routines.
+!!    !
+!!    function test(tame, wild, bExpectedResult) result(bpassed)
+!!    use M_strings, only : glob
+!!       character(len=*) :: tame
+!!       character(len=*) :: wild
+!!       logical          :: bExpectedResult
+!!       logical          :: bResult
+!!       logical          :: bPassed
+!!       bResult = .true.    ! We'll do "&=" cumulative checking.
+!!       bPassed = .false.   ! Assume the worst.
+!!       write(*,*)repeat('=',79)
+!!       bResult = glob(tame, wild) ! Call a wildcard matching routine.
+!!
+!!       ! To assist correctness checking, output the two strings in any
+!!       ! failing scenarios.
+!!       if (bExpectedResult .eqv. bResult) then
+!!          bPassed = .true.
+!!          if(nReps == 1) write(*,*)"Passed match on ",tame," vs. ", wild
+!!       else
+!!          if(nReps == 1) write(*,*)"Failed match on ",tame," vs. ", wild
+!!       endif
+!!
+!!    end function test
+!!    end program demo_glob
+!!
+!!   Expected output
+!!
+!!##AUTHOR
+!!   John S. Urban
+!!
+!!##REFERENCE
+!!   The article "Matching Wildcards: An Empirical Way to Tame an Algorithm"
+!!   in Dr Dobb's Journal, By Kirk J. Krauss, October 07, 2014
+!!
+!!##LICENSE
+!!   Public Domain
+
+! ident_6="@(#)M_strings::glob(3f): function compares text strings, one of which can have wildcards ('*' or '?')."
+
+logical                    :: glob
+character(len=*)           :: tame       ! A string without wildcards
+character(len=*)           :: wild       ! A (potentially) corresponding string with wildcards
+character(len=len(tame)+1) :: tametext
+character(len=len(wild)+1) :: wildtext
+character(len=1),parameter :: NULL=char(0)
+integer                    :: wlen
+integer                    :: ti, wi
+integer                    :: i
+character(len=:),allocatable :: tbookmark, wbookmark
+! These two values are set when we observe a wildcard character. They
+! represent the locations, in the two strings, from which we start once we've observed it.
+   tametext=tame//NULL
+   wildtext=wild//NULL
+   tbookmark = NULL
+   wbookmark = NULL
+   wlen=len(wild)
+   wi=1
+   ti=1
+   do                                            ! Walk the text strings one character at a time.
+      if(wildtext(wi:wi) == '*')then             ! How do you match a unique text string?
+         do i=wi,wlen                            ! Easy: unique up on it!
+            if(wildtext(wi:wi).eq.'*')then
+               wi=wi+1
+            else
+               exit
+            endif
+         enddo
+         if(wildtext(wi:wi).eq.NULL) then        ! "x" matches "*"
+            glob=.true.
+            return
+         endif
+         if(wildtext(wi:wi) .ne. '?') then
+            ! Fast-forward to next possible match.
+            do while (tametext(ti:ti) .ne. wildtext(wi:wi))
+               ti=ti+1
+               if (tametext(ti:ti).eq.NULL)then
+                  glob=.false.
+                  return                         ! "x" doesn't match "*y*"
+               endif
+            enddo
+         endif
+         wbookmark = wildtext(wi:)
+         tbookmark = tametext(ti:)
+      elseif(tametext(ti:ti) .ne. wildtext(wi:wi) .and. wildtext(wi:wi) .ne. '?') then
+         ! Got a non-match. If we've set our bookmarks, back up to one or both of them and retry.
+         if(wbookmark.ne.NULL) then
+            if(wildtext(wi:).ne. wbookmark) then
+               wildtext = wbookmark;
+               wlen=len_trim(wbookmark)
+               wi=1
+               ! Don't go this far back again.
+               if (tametext(ti:ti) .ne. wildtext(wi:wi)) then
+                  tbookmark=tbookmark(2:)
+                  tametext = tbookmark
+                  ti=1
+                  cycle                          ! "xy" matches "*y"
+               else
+                  wi=wi+1
+               endif
+            endif
+            if (tametext(ti:ti).ne.NULL) then
+               ti=ti+1
+               cycle                             ! "mississippi" matches "*sip*"
+            endif
+         endif
+         glob=.false.
+         return                                  ! "xy" doesn't match "x"
+      endif
+      ti=ti+1
+      wi=wi+1
+      if (tametext(ti:ti).eq.NULL) then          ! How do you match a tame text string?
+         if(wildtext(wi:wi).ne.NULL)then
+            do while (wildtext(wi:wi) == '*')    ! The tame way: unique up on it!
+               wi=wi+1                           ! "x" matches "x*"
+               if(wildtext(wi:wi).eq.NULL)exit
+            enddo
+         endif
+         if (wildtext(wi:wi).eq.NULL)then
+            glob=.true.
+            return                               ! "x" matches "x"
+         endif
+         glob=.false.
+         return                                  ! "x" doesn't match "xy"
+      endif
+   enddo
+end function glob
+
+pure integer function str_int_len(i) result(sz)
+! Returns the length of the string representation of 'i'
+integer, intent(in) :: i
+integer, parameter :: MAX_STR = 100
+character(MAX_STR) :: s
+! If 's' is too short (MAX_STR too small), Fortran will abort with:
+! "Fortran runtime error: End of record"
+write(s, '(i0)') i
+sz = len_trim(s)
+end function
+
+pure function str_int(i) result(s)
+! Converts integer "i" to string
+integer, intent(in) :: i
+character(len=str_int_len(i)) :: s
+write(s, '(i0)') i
+end function
+
+pure integer function str_int64_len(i) result(sz)
+! Returns the length of the string representation of 'i'
+integer(int64), intent(in) :: i
+integer, parameter :: MAX_STR = 100
+character(MAX_STR) :: s
+! If 's' is too short (MAX_STR too small), Fortran will abort with:
+! "Fortran runtime error: End of record"
+write(s, '(i0)') i
+sz = len_trim(s)
+end function
+
+pure function str_int64(i) result(s)
+! Converts integer "i" to string
+integer(int64), intent(in) :: i
+character(len=str_int64_len(i)) :: s
+write(s, '(i0)') i
+end function
+
+pure integer function str_logical_len(l) result(sz)
+! Returns the length of the string representation of 'l'
+logical, intent(in) :: l
+if (l) then
+    sz = 6
+else
+    sz = 7
+end if
+end function
+
+pure function str_logical(l) result(s)
+! Converts logical "l" to string
+logical, intent(in) :: l
+character(len=str_logical_len(l)) :: s
+if (l) then
+    s = ".true."
+else
+    s = ".false."
+end if
+end function
 
 end module fpm_strings
  
@@ -814,7 +1543,8 @@ end module tomlf_version
 !===================================================================================================================================
 !>
 !!##NAME
-!!     M_CLI2(3fm) - [ARGUMENTS::M_CLI2] - command line argument parsing using a prototype command
+!!     M_CLI2(3fm) - [ARGUMENTS::M_CLI2] - command line argument parsing
+!!     using a prototype command
 !!     (LICENSE:PD)
 !!##SYNOPSIS
 !!
@@ -831,9 +1561,10 @@ end module tomlf_version
 !!    Allow for command line parsing much like standard Unix command line
 !!    parsing using a simple prototype.
 !!
-!!    Typically one call to SET_ARGS(3f) is made to define the command arguments,
-!!    set default values and parse the command line. Then a call is made to
-!!    GET_ARGS(3f) for each command keyword to obtain the argument values.
+!!    Typically one call to SET_ARGS(3f) is made to define the command
+!!    arguments, set default values and parse the command line. Then a
+!!    call is made to GET_ARGS(3f) for each command keyword to obtain the
+!!    argument values.
 !!
 !!    The documentation for SET_ARGS(3f) and GET_ARGS(3f) provides further
 !!    details.
@@ -886,8 +1617,12 @@ end module tomlf_version
 !!     call get_args('logicals',logicals)
 !!     !
 !!     ! for NON-ALLOCATABLE VARIABLES
-!!     call get_args_fixed_length('label',label) ! for non-allocatable string
-!!     call get_args_fixed_size('p',p)           ! for non-allocatable arrays
+!!
+!!     ! for non-allocatable string
+!!     call get_args_fixed_length('label',label)
+!!
+!!     ! for non-allocatable arrays
+!!     call get_args_fixed_size('p',p)
 !!     call get_args_fixed_size('logi',logi)
 !!     !
 !!     ! USE VALUES
@@ -926,12 +1661,15 @@ implicit none
 integer,parameter,private :: dp=kind(0.0d0)
 integer,parameter,private :: sp=kind(0.0)
 private
+!logical,save :: debug_m_cli2=.true.
+logical,public,save :: debug_m_cli2=.false.
 !===================================================================================================================================
 character(len=*),parameter          :: gen='(*(g0))'
 character(len=:),allocatable,public :: unnamed(:)
 character(len=:),allocatable,public :: args(:)
 character(len=:),allocatable,public :: remaining
 public                              :: set_args
+public                              :: get_subcommand
 public                              :: get_args
 public                              :: get_args_fixed_size
 public                              :: get_args_fixed_length
@@ -940,6 +1678,7 @@ public                              :: print_dictionary
 
 public                              :: dget, iget, lget, rget, sget, cget
 public                              :: dgets, igets, lgets, rgets, sgets, cgets
+public                              :: CLI_RESPONSE_FILE
 
 private :: check_commandline
 private :: wipe_dictionary
@@ -957,23 +1696,30 @@ type option
    logical                  :: mandatory
 end type option
 !===================================================================================================================================
-character(len=:),allocatable   :: keywords(:)
-character(len=:),allocatable   :: shorts(:)
-character(len=:),allocatable   :: values(:)
-integer,allocatable            :: counts(:)
-logical,allocatable            :: present_in(:)
-logical,allocatable            :: mandatory(:)
+character(len=:),allocatable,save :: keywords(:)
+character(len=:),allocatable,save :: shorts(:)
+character(len=:),allocatable,save :: values(:)
+integer,allocatable,save          :: counts(:)
+logical,allocatable,save          :: present_in(:)
+logical,allocatable,save          :: mandatory(:)
 
-logical                        :: G_keyword_single_letter=.true.
-character(len=:),allocatable   :: G_passed_in
-logical                        :: G_remaining_on, G_remaining_option_allowed
-character(len=:),allocatable   :: G_remaining
-character(len=:),allocatable   :: G_STOP_MESSAGE
-integer                        :: G_STOP
-logical                        :: G_STOPON
-logical                        :: G_STRICT    ! strict short and long rules or allow -longname and --shortname
-logical                        :: G_RESPONSE  ! allow @name abbreviations
-logical                        :: G_APPEND    ! whether to append or replace when duplicate keywords found
+logical,save                      :: G_keyword_single_letter=.true.
+character(len=:),allocatable,save :: G_passed_in
+logical,save                      :: G_remaining_on, G_remaining_option_allowed
+character(len=:),allocatable,save :: G_remaining
+character(len=:),allocatable,save :: G_subcommand  ! possible candidate for a subcommand
+character(len=:),allocatable,save :: G_STOP_MESSAGE
+integer,save                      :: G_STOP
+logical,save                      :: G_STOPON
+logical,save                      :: G_STRICT    ! strict short and long rules or allow -longname and --shortname
+!----------------------------------------------
+! try out response files
+logical,save                      :: CLI_RESPONSE_FILE=.false.  ! allow @name abbreviations
+logical,save                      :: G_APPEND                   ! whether to append or replace when duplicate keywords found
+logical,save                      :: G_OPTIONS_ONLY             ! process release file only looking for options for get_subcommand()
+logical,save                      :: G_RESPONSE                 ! allow @name abbreviations
+character(len=:),allocatable,save :: G_RESPONSE_IGNORED
+!----------------------------------------------
 !===================================================================================================================================
 ! return allocatable arrays
 interface  get_args;  module  procedure  get_anyarray_d;  end interface  ! any size array
@@ -1052,10 +1798,10 @@ contains
 !===================================================================================================================================
 !>
 !!##NAME
-!!     check_commandline(3f) - [ARGUMENTS:M_CLI2]check command and process pre-defined options
+!!     check_commandline(3f) - [ARGUMENTS:M_CLI2]check command and process
+!!     pre-defined options
 !!
 !!##SYNOPSIS
-!!
 !!
 !!      subroutine check_commandline(help_text,version_text,ierr,errmsg)
 !!
@@ -1064,7 +1810,7 @@ contains
 !!
 !!##DESCRIPTION
 !!     Checks the commandline  and processes the implicit --help, --version,
-!!     and --usage parameters.
+!!     --verbose, and --usage parameters.
 !!
 !!     If the optional text values are supplied they will be displayed by
 !!     --help and --version command-line options, respectively.
@@ -1086,7 +1832,7 @@ contains
 !!        Unix platforms you can probably see how it can be used to place
 !!        metadata in a binary by entering:
 !!
-!!            strings demo_commandline|grep '@(#)'|tr '>' '\n'|sed -e 's/  */ /g'
+!!         strings demo_commandline|grep '@(#)'|tr '>' '\n'|sed -e 's/  */ /g'
 !!
 !!##EXAMPLE
 !!
@@ -1117,6 +1863,7 @@ contains
 subroutine check_commandline(help_text,version_text)
 character(len=:),allocatable,intent(in),optional :: help_text(:)
 character(len=:),allocatable,intent(in),optional :: version_text(:)
+character(len=:),allocatable                     :: line
 integer                                          :: i
 integer                                          :: istart
 integer                                          :: iback
@@ -1149,8 +1896,16 @@ integer                                          :: iback
                iback=1
             endif
          endif
+         if(debug_m_cli2)write(*,gen)'<DEBUG>CHECK_COMMANDLINE:VERSION_TEXT:ALLOCATED',allocated(version_text)
+         if(allocated(version_text).and.debug_m_cli2)then
+            write(*,gen)'<DEBUG>CHECK_COMMANDLINE:VERSION_TEXT:LEN',len(version_text)
+            write(*,gen)'<DEBUG>CHECK_COMMANDLINE:VERSION_TEXT:SIZE',size(version_text)
+            write(*,gen)'<DEBUG>CHECK_COMMANDLINE:VERSION_TEXT:LEN',version_text
+         endif
          do i=1,size(version_text)
-            call journal('sc',version_text(i)(istart:len_trim(version_text(i))-iback))
+            !*INTEL BUG*!call journal('sc',version_text(i)(istart:len_trim(version_text(i))-iback))
+            line=version_text(i)(istart:len_trim(version_text(i))-iback)
+            call journal('sc',line)
          enddo
          call mystop(3,'displayed version text')
          return
@@ -1191,7 +1946,6 @@ end subroutine check_commandline
 !!      character(len=:),intent(in),allocatable,optional  :: version_text
 !!      integer,intent(out),optional                      :: ierr
 !!      character(len=:),intent(out),allocatable,optional :: errmsg
-!!      logical,intent(in),optional                       :: response
 !!##DESCRIPTION
 !!
 !!     SET_ARGS(3f) requires a unix-like command prototype for defining
@@ -1209,25 +1963,26 @@ end subroutine check_commandline
 !!
 !!                      call set_args('-L F -ints 10,20,30 -title "my title" -R 10.3')
 !!
-!!                    DESCRIPTION is pre-defined to act as if started with the reserved
-!!                    options '--usage F --help F --version F'. The --usage
-!!                    option is processed when the set_args(3f)
-!!                    routine is called. The same is true for --help and --version
-!!                    if the optional help_text and version_text options are
-!!                    provided.
+!!                    DESCRIPTION is pre-defined to act as if started with
+!!                    the reserved options '--verbose F --usage F --help
+!!                    F --version F'. The --usage option is processed when
+!!                    the set_args(3f) routine is called. The same is true
+!!                    for --help and --version if the optional help_text
+!!                    and version_text options are provided.
 !!
-!!                    see "DEFINING THE PROTOTYPE" in the next section for further
-!!                    details.
+!!                    see "DEFINING THE PROTOTYPE" in the next section for
+!!                    further details.
 !!
 !!      HELP_TEXT     if present, will be displayed if program is called with
 !!                    --help switch, and then the program will terminate. If
-!!                    not supplied, the command line initialization string will be
-!!                    shown when --help is used on the commandline.
+!!                    not supplied, the command line initialization string
+!!                    will be shown when --help is used on the commandline.
 !!
 !!      VERSION_TEXT  if present, will be displayed if program is called with
 !!                    --version switch, and then the program will terminate.
-!!      IERR          if present a non-zero option is returned when an error occurs
-!!                    instead of program execution being terminated
+!!      IERR          if present a non-zero option is returned when an
+!!                    error occurs instead of program execution being
+!!                    terminated
 !!      ERRMSG        a description of the error if ierr is present
 !!
 !!##DEFINING THE PROTOTYPE
@@ -1277,9 +2032,8 @@ end subroutine check_commandline
 !!      When invoking the program line note that (subject to change) the
 !!      following variations from other common command-line parsers:
 !!
-!!         o long names do not take the --KEY=VALUE form, just
-!!           --KEY VALUE; and long names should be all lowercase and
-!!           always more than one character.
+!!         o Long names should be all lowercase and always more than one
+!!           character.
 !!
 !!         o values for duplicate keywords are appended together with a space
 !!           separator when a command line is executed.
@@ -1375,14 +2129,237 @@ end subroutine check_commandline
 !!     endif
 !!     end program demo_set_args
 !!
+!!##RESPONSE FILES
+!!
+!! If you have no interest in using external files as abbreviations
+!! you can ignore this section. Otherwise, before calling set_args(3f)
+!! add:
+!!
+!!     use M_CLI2, only : CLI_response_file
+!!     CLI_response_file=.true.
+!!
+!! M_CLI2 Response files are small files containing CLI (Command Line
+!! Interface) arguments that are used when command lines are so long that
+!! they would exceed line length limits or so complex that it is useful to
+!! have a platform-independent method of creating an abbreviation.
+!!
+!! Examples of commands that support similar response files are the Clang
+!! and Intel compilers, although there is no standard format for the files.
+!!
+!! The file names must end with ".rsp".  They are read if you add options
+!! of the syntax "@NAME" as the FIRST parameters on your program command
+!! line calls.
+!!
+!! Shell aliases and scripts are often used for similar purposes (and
+!! allow for much more complex conditional execution, of course), but
+!! they generally cannot be used to overcome line length limits and are
+!! typically platform-specific.
+!!
+!!   LOCATING RESPONSE FILES
+!!
+!! The first resource file found that results in lines being processed
+!! will be used and processing stops after that first match is found. If
+!! no match is found an error occurs and the program is stopped.
+!!
+!! A search for the response file always starts with the current directory.
+!! The search then proceeds to look in any additional directories specified
+!! with the colon-delimited environment variable CLI_RESPONSE_PATH.
+!!
+!!   RESPONSE FILE SECTIONS
+!!
+!!  A simple response file just has options for calling the program in it.
+!!  But they can also contain section headers to denote sections that are
+!!  only executed when a specific OS is being used. In addition a special
+!!  response file named PROGRAM.rsp can contain multiple abbreviations.
+!!
+!!   SEARCH FOR @OSTYPE IN REGULAR FILES (NAME.rsp)
+!!
+!!  Assuming the name @NAME was specified on the command line a file named
+!!  NAME.rsp will be searched for in all those search locations for a string
+!!  that starts with the string @OSTYPE if the environment variables $OS and
+!!  $OSTYPE are not blank.
+!!
+!!  If $OSTYPE is unset, the value of the variable OS will be used.
+!!
+!!   SEARCH FOR UNLABELED DIRECTIVES IN REGULAR FILES (NAME.rsp)
+!!
+!!  Then, the same files will be searched for lines before any line
+!!  starting with "@". That is, if there is no special section for the current
+!!  OS it just looks at the top of the file for unlabeled options.
+!!
+!!   SEARCH FOR @OSTYPE@NAME IN THE COMPLEX FILE (EXECUTABLE.rsp)
+!!
+!!  Then, if nothing was found a file name EXECUTABLE.rsp will be searched
+!!  for in the same locations where EXECUTABLE is the basename of the program
+!!  being executed. This file is always a "complex" response file that uses
+!!  the format described below to allow for multiple entries.
+!!
+!!  Any complex EXECUTABLE.rsp file found in the current or searched directories
+!!  will be searched for the string @OSTYPE@NAME first.
+!!
+!!   SEARCH FOR @NAME IN THE COMPLEX FILE (EXECUTABLE.rsp)
+!!
+!!  The last search is to search all the EXECUTABLE.rsp files for the string
+!!  @NAME.
+!!
+!!   THE SEARCH IS OVER
+!!
+!! Sounds complicated but actually works quite intuitively. Make a file in
+!! the current directory and put options in it and it will be used. If that
+!! file ends up needing different cases for different platforms add a line
+!! like "@Linux" to the file and some more lines and that will only be
+!! executed if the environment variable OSTYPE or OS is "Linux". If no match
+!! is found for named sections the lines at the top before any "@" lines
+!! will be used as a default if not match is found.
+!!
+!! If you end up using a lot of files like this you can combine them all
+!! together and put them info a file called "program_name.rsp" and just
+!! put lines like @NAME or @OSTYPE@NAME at that top of each section.
+!!
+!! Note that more than one response name may appear on a command line.
+!!
+!! They are case-sensitive names.
+!!
+!! As mentioned, they must be the first options on the command line.
+!!
+!!
+!!##SPECIFICATION FOR RESPONSE FILES
+!!
+!!   SIMPLE RESPONSE FILES
+!!
+!! The first word of a line is special and has the following meanings:
+!!
+!!    options|-  Command options following the rules of the SET_ARGS(3f)
+!!               prototype. So
+!!                o It is preferred to specify a value for all options.
+!!                o double-quote strings.
+!!                o give a blank string value as " ".
+!!                o use F|T for lists of logicals,
+!!                o lists of numbers should be comma-delimited.
+!!    comment|#  Line is a comment line
+!!    system|!   System command.
+!!               System commands are executed as a simple call to
+!!               system (so a cd(1) or setting a shell variable
+!!               would not effect subsequent lines, for example)
+!!    print|>    Message to screen
+!!    stop       display message and stop program.
+!!
+!! So if a program that echoed its parameters has a call of the form
+!!
+!!     set_args('-x 10.0 -y 20.0 --title "my title")
+!!
+!! And a file in the current directory called "a.rsp" contained
+!!
+!!     # defaults for project A
+!!     options -x 1000 -y 9999
+!!     options --title "my new default title"
+!!
+!! The program could be called with
+!!
+!!    # normal
+!!    $myprog
+!!     X=10.0 Y=20.0 TITLE="my title"
+!!
+!!    # change defaults as specified in "a.rsp"
+!!    $myprog @a
+!!     X=1000.0 Y=9999.0 TITLE="my new default title"
+!!
+!!    # change defaults but use any option as normal to override defaults
+!!    $myprog @a -y 1234
+!!     X=1000.0 Y=1234.0 TITLE="my new default title"
+!!
+!!   COMPOUND RESPONSE FILES
+!!
+!! A compound response file has the same basename as the executable with a
+!! ".rsp" suffix added. So if your program is named "myprg" the filename
+!! must be "myprg.rsp".
+!!
+!!    Note that here `basename` means the basename of the
+!!    name of the program as returned by the Fortran intrinsic
+!!    GET_COMMAND_ARGUMENT(0,...) trimmed of anything after a period ("."),
+!!    so it is a good idea not to use hidden files.
+!!
+!! Unlike simple response files compound response files can contain multiple
+!! setting names.
+!!
+!! If the environment variable $OSTYPE (first) or $OS is set the search
+!! will first be for a line of the form (no leading spaces should be used):
+!!
+!!    @OSTYPE@alias_name
+!!
+!! If no match or if the environment variables $OSTYPE and $OS were not
+!! set or a match is not found then a line of the form
+!!
+!!    @alias_name
+!!
+!! is searched for. Subsequent lines will be ignored that start with "@"
+!! until a line not starting with "@" is encountered.  Lines will then be
+!! processed until another line starting with "@" is found or end-of-file
+!! is encountered.
+!!
+!!   COMPOUND RESPONSE FILE EXAMPLE
+!!  An example compound file
+!!
+!!    #################
+!!    @if
+!!    > RUNNING TESTS USING RELEASE VERSION AND ifort
+!!    - test --release --compiler ifort
+!!    #################
+!!    @gf
+!!    > RUNNING TESTS USING RELEASE VERSION AND gfortran
+!!    - test --release --compiler gfortran
+!!    #################
+!!    @nv
+!!    > RUNNING TESTS USING RELEASE VERSION AND nvfortran
+!!    - test --release --compiler nvfortran
+!!    #################
+!!    @nag
+!!    > RUNNING TESTS USING RELEASE VERSION AND nagfor
+!!    - test --release --compiler nagfor
+!!    #
+!!    #################
+!!    # OS-specific example:
+!!    @Linux@install
+!!    #
+!!    # install executables in directory (assuming install(1) exists)
+!!    #
+!!    !mkdir -p ~/.local/bin
+!!    - run --release T --compiler gfortran --runner "install -vbp -m 0711 -t ~/.local/bin"
+!!    @install
+!!    @STOP INSTALL NOT SUPPORTED ON THIS PLATFORM OR $OSTYPE NOT SET
+!!    #
+!!    #################
+!!    @fpm@testall
+!!    #
+!!    !fpm test --compiler nvfortran
+!!    !fpm test --compiler ifort
+!!    !fpm test --compiler gfortran
+!!    !fpm test --compiler nagfor
+!!    STOP tests complete. Any additional parameters were ignored
+!!    #################
+!!
+!!  Would be used like
+!!
+!!    fpm @install
+!!    fpm @nag --
+!!    fpm @testall
+!!
+!!   NOTES
+!!
+!!    The intel Fortran compiler now calls the response files "indirect
+!!    files" and does not add the implied suffix ".rsp" to the files
+!!    anymore. It also allows the @NAME syntax anywhere on the command
+!!    line, not just at the beginning. --  20201212
+!!
 !!##AUTHOR
 !!      John S. Urban, 2019
+!!
 !!##LICENSE
 !!      Public Domain
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
-subroutine set_args(prototype,help_text,version_text,string,ierr,errmsg,response)
+subroutine set_args(prototype,help_text,version_text,string,ierr,errmsg)
 
 ! ident_2="@(#)M_CLI2::set_args(3f): parse prototype string"
 
@@ -1392,15 +2369,11 @@ character(len=:),intent(in),allocatable,optional  :: version_text(:)
 character(len=*),intent(in),optional              :: string
 integer,intent(out),optional                      :: ierr
 character(len=:),intent(out),allocatable,optional :: errmsg
-logical,intent(in),optional                       :: response
 character(len=:),allocatable                      :: hold               ! stores command line argument
 integer                                           :: ibig
-   if(present(response))then
-      G_response=response
-   else
-      G_response=.false.
-   endif
-   G_append=.false.
+   G_response=CLI_RESPONSE_FILE
+   G_options_only=.false.
+   G_append=.true.
    G_passed_in=''
    G_STOP=0
    G_STOP_MESSAGE=''
@@ -1416,8 +2389,12 @@ integer                                           :: ibig
    allocate(character(len=ibig) :: args(0))
 
    call wipe_dictionary()
-   hold='--usage F --help F --version F '//adjustl(prototype)
+   hold='--version F --usage F --help F --version F '//adjustl(prototype)
    call prototype_and_cmd_args_to_nlist(hold,string)
+   if(allocated(G_RESPONSE_IGNORED))then
+      if(size(unnamed).ne.0)write(*,*)'LOGIC ERROR'
+      call split(G_RESPONSE_IGNORED,unnamed)
+   endif
 
    if(.not.allocated(unnamed))then
        allocate(character(len=0) :: unnamed(0))
@@ -1438,7 +2415,209 @@ end subroutine set_args
 !===================================================================================================================================
 !>
 !!##NAME
-!!      prototype_to_dictionary(3f) - [ARGUMENTS:M_CLI2] parse user command and store tokens into dictionary
+!!    get_subcommand(3f) - [ARGUMENTS:M_CLI2] special-case routine for
+!!    handling subcommands on a command line
+!!    (LICENSE:PD)
+!!
+!!##SYNOPSIS
+!!
+!!    function get_subcommand()
+!!
+!!     character(len=:),allocatable :: get_subcommand
+!!
+!!##DESCRIPTION
+!!    In the special case when creating a program with subcommands it
+!!    is assumed the first word on the command line is the subcommand. A
+!!    routine is required to handle response file processing, therefore
+!!    this routine (optionally processing response files) returns that
+!!    first word as the subcommand name.
+!!
+!!    It should not be used by programs not building a more elaborate
+!!    command with subcommands.
+!!
+!!##RETURNS
+!!    NAME   name of subcommand
+!!
+!!##EXAMPLE
+!!
+!! Sample program:
+!!
+!!    program demo_get_subcommand
+!!    !! SUBCOMMANDS
+!!    !! For a command with subcommands like git(1)
+!!    !! you can make separate namelists for each subcommand.
+!!    !! You can call this program which has two subcommands (run, test),
+!!    !! like this:
+!!    !!    demo_get_subcommand --help
+!!    !!    demo_get_subcommand run -x -y -z -title -l -L
+!!    !!    demo_get_subcommand test -title -l -L -testname
+!!    !!    demo_get_subcommand run --help
+!!       implicit none
+!!    !! DEFINE VALUES TO USE AS ARGUMENTS WITH INITIAL VALUES
+!!       real               :: x=-999.0,y=-999.0,z=-999.0
+!!       character(len=80)  :: title="not set"
+!!       logical            :: l=.false.
+!!       logical            :: l_=.false.
+!!       character(len=80)  :: testname="not set"
+!!       character(len=20)  :: name
+!!       call parse(name) !! DEFINE AND PARSE COMMAND LINE
+!!       !! ALL DONE CRACKING THE COMMAND LINE.
+!!       !! USE THE VALUES IN YOUR PROGRAM.
+!!       write(*,*)'command was ',name
+!!       write(*,*)'x,y,z .... ',x,y,z
+!!       write(*,*)'title .... ',title
+!!       write(*,*)'l,l_ ..... ',l,l_
+!!       write(*,*)'testname . ',testname
+!!    contains
+!!    subroutine parse(name)
+!!    !! PUT EVERYTHING TO DO WITH COMMAND PARSING HERE FOR CLARITY
+!!    use M_CLI2, only : set_args, get_args, get_args_fixed_length
+!!    use M_CLI2, only : get_subcommand
+!!    use M_CLI2, only : CLI_RESPONSE_FILE
+!!    character(len=*)              :: name    ! the subcommand name
+!!    character(len=:),allocatable  :: help_text(:), version_text(:)
+!!       CLI_RESPONSE_FILE=.true.
+!!    ! define version text
+!!       version_text=[character(len=80) :: &
+!!          '@(#)PROGRAM:     demo_get_subcommand            >', &
+!!          '@(#)DESCRIPTION: My demo program  >', &
+!!          '@(#)VERSION:     1.0 20200715     >', &
+!!          '@(#)AUTHOR:      me, myself, and I>', &
+!!          '@(#)LICENSE:     Public Domain    >', &
+!!          '' ]
+!!        ! general help for "demo_get_subcommand --help"
+!!        help_text=[character(len=80) :: &
+!!         ' allowed subcommands are          ', &
+!!         '   * run  -l -L -title -x -y -z   ', &
+!!         '   * test -l -L -title            ', &
+!!         '' ]
+!!       ! find the subcommand name by looking for first word on command
+!!       ! not starting with dash
+!!       name = get_subcommand()
+!!       select case(name)
+!!       case('run')
+!!        help_text=[character(len=80) :: &
+!!         '                                  ', &
+!!         ' Help for subcommand "run"        ', &
+!!         '                                  ', &
+!!         '' ]
+!!        call set_args( &
+!!        & '-x 1 -y 2 -z 3 --title "my title" -l F -L F',&
+!!        & help_text,version_text)
+!!        call get_args('x',x)
+!!        call get_args('y',y)
+!!        call get_args('z',z)
+!!        call get_args_fixed_length('title',title)
+!!        call get_args('l',l)
+!!        call get_args('L',l_)
+!!       case('test')
+!!        help_text=[character(len=80) :: &
+!!         '                                  ', &
+!!         ' Help for subcommand "test"       ', &
+!!         '                                  ', &
+!!         '' ]
+!!        call set_args(&
+!!        & '--title "my title" -l F -L F --testname "Test"',&
+!!        & help_text,version_text)
+!!        call get_args_fixed_length('title',title)
+!!        call get_args('l',l)
+!!        call get_args('L',l_)
+!!        call get_args_fixed_length('testname',testname)
+!!       case default
+!!        ! process help and version
+!!        call set_args(' ',help_text,version_text)
+!!        write(*,'(*(a))')'unknown or missing subcommand [',trim(name),']'
+!!        write(*,'(a)')[character(len=80) ::  &
+!!        ' allowed subcommands are          ', &
+!!        '   * run  -l -L -title -x -y -z   ', &
+!!        '   * test -l -L -title            ', &
+!!        '' ]
+!!        stop
+!!       end select
+!!    end subroutine parse
+!!    end program demo_get_subcommand
+!!
+!!##AUTHOR
+!!      John S. Urban, 2019
+!!
+!!##LICENSE
+!!      Public Domain
+!===================================================================================================================================
+function get_subcommand() result(sub)
+
+! ident_3="@(#)M_CLI2::get_subcommand(3f): parse prototype string to get subcommand, allowing for response files"
+
+character(len=:),allocatable  :: sub
+character(len=:),allocatable  :: cmdarg
+character(len=:),allocatable  :: array(:)
+character(len=:),allocatable  :: prototype
+integer                       :: ilongest
+integer                       :: i
+integer                       :: j
+   G_subcommand=''
+   G_options_only=.true.
+
+   if(.not.allocated(unnamed))then
+      allocate(character(len=0) :: unnamed(0))
+   endif
+
+   ilongest=longest_command_argument()
+   allocate(character(len=max(63,ilongest)):: cmdarg)
+   cmdarg(:) = ''
+   ! look for @NAME if CLI_RESPONSE_FILE=.TRUE. AND LOAD THEM
+   do i = 1, command_argument_count()
+      call get_command_argument(i, cmdarg)
+      if(adjustl(cmdarg(1:1)) .eq. '@')then
+         call get_prototype(cmdarg,prototype)
+         call split(prototype,array)
+         ! assume that if using subcommands first word not starting with dash is the subcommand
+         do j=1,size(array)
+            if(adjustl(array(j)(1:1)) .ne. '-')then
+            G_subcommand=trim(array(j))
+            sub=G_subcommand
+            exit
+         endif
+         enddo
+      endif
+   enddo
+
+   if(G_subcommand.ne.'')then
+      sub=G_subcommand
+   elseif(size(unnamed).ne.0)then
+      sub=unnamed(1)
+   else
+      cmdarg(:) = ''
+      do i = 1, command_argument_count()
+         call get_command_argument(i, cmdarg)
+         if(adjustl(cmdarg(1:1)) .ne. '-')then
+            sub=trim(cmdarg)
+           exit
+        endif
+      enddo
+   endif
+   G_options_only=.false.
+end function get_subcommand
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+!===================================================================================================================================
+subroutine set_usage(keyword,description,value)
+character(len=*),intent(in) :: keyword
+character(len=*),intent(in) :: description
+character(len=*),intent(in) :: value
+write(*,*)keyword
+write(*,*)description
+write(*,*)value
+! store the descriptions in an array and then apply them when set_args(3f) is called.
+! alternatively, could allow for a value as well in lieue of the prototype
+end subroutine set_usage
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+!>
+!!##NAME
+!!      prototype_to_dictionary(3f) - [ARGUMENTS:M_CLI2] parse user command
+!!      and store tokens into dictionary
 !!      (LICENSE:PD)
 !!
 !!##SYNOPSIS
@@ -1489,7 +2668,7 @@ end subroutine set_args
 recursive subroutine prototype_to_dictionary(string)
 implicit none
 
-! ident_3="@(#)M_CLI2::prototype_to_dictionary(3f): parse user command and store tokens into dictionary"
+! ident_4="@(#)M_CLI2::prototype_to_dictionary(3f): parse user command and store tokens into dictionary"
 
 character(len=*),intent(in)       :: string ! string is character input string of options and values
 
@@ -1560,7 +2739,8 @@ integer                           :: place
             elseif( G_remaining_option_allowed)then  ! meaning "--" has been encountered
                call update('_args_',trim(value))
             else
-               write(warn,'(*(g0))')'*prototype_to_dictionary* warning: ignoring string [',trim(value),'] for ',trim(keyword)
+               !*!write(warn,'(*(g0))')'*prototype_to_dictionary* warning: ignoring string [',trim(value),'] for ',trim(keyword)
+               G_RESPONSE_IGNORED=TRIM(VALUE)
             endif
          else
             call locate_key(keyword,place)
@@ -1632,7 +2812,8 @@ end subroutine prototype_to_dictionary
 !===================================================================================================================================
 !>
 !!##NAME
-!!      update(3f) - [ARGUMENTS:M_CLI2] update internal dictionary given keyword and value
+!!      update(3f) - [ARGUMENTS:M_CLI2] update internal dictionary given
+!!      keyword and value
 !!      (LICENSE:PD)
 !!##SYNOPSIS
 !!
@@ -1662,7 +2843,8 @@ end subroutine prototype_to_dictionary
 !===================================================================================================================================
 !>
 !!##NAME
-!!    specified(3f) - [ARGUMENTS:M_CLI2] return true if keyword was present on command line
+!!    specified(3f) - [ARGUMENTS:M_CLI2] return true if keyword was present
+!!    on command line
 !!    (LICENSE:PD)
 !!
 !!##SYNOPSIS
@@ -1697,16 +2879,20 @@ end subroutine prototype_to_dictionary
 !!    integer,allocatable     :: ints(:)
 !!    real,allocatable        :: twonames(:)
 !!
-!!    ! IT IS A BAD IDEA TO NOT HAVE THE SAME DEFAULT VALUE FOR ALIASED NAMES
-!!    ! BUT CURRENTLY YOU STILL SPECIFY THEM
+!!    ! IT IS A BAD IDEA TO NOT HAVE THE SAME DEFAULT VALUE FOR ALIASED
+!!    ! NAMES BUT CURRENTLY YOU STILL SPECIFY THEM
 !!       call set_args(' -flag 1 -f 1 -ints 1,2,3 -i 1,2,3 -twonames 11.3 -T 11.3')
 !!
 !!    ! ASSIGN VALUES TO ELEMENTS CONDITIONALLY CALLING WITH SHORT NAME
-!!       call get_args('flag',flag);         if(specified('f'))call get_args('f',flag)
-!!       call get_args('ints',ints);         if(specified('i'))call get_args('i',ints)
-!!       call get_args('twonames',twonames); if(specified('T'))call get_args('T',twonames)
+!!       call get_args('flag',flag)
+!!       if(specified('f'))call get_args('f',flag)
+!!       call get_args('ints',ints)
+!!       if(specified('i'))call get_args('i',ints)
+!!       call get_args('twonames',twonames)
+!!       if(specified('T'))call get_args('T',twonames)
 !!
-!!       ! IF YOU WANT TO KNOW IF GROUPS OF PARAMETERS WERE SPECIFIED USE ANY(3f) and ALL(3f)
+!!       ! IF YOU WANT TO KNOW IF GROUPS OF PARAMETERS WERE SPECIFIED USE
+!!       ! ANY(3f) and ALL(3f)
 !!       write(*,*)specified(['twonames','T       '])
 !!       write(*,*)'ANY:',any(specified(['twonames','T       ']))
 !!       write(*,*)'ALL:',all(specified(['twonames','T       ']))
@@ -1969,7 +3155,7 @@ end function get
 subroutine prototype_and_cmd_args_to_nlist(prototype,string)
 implicit none
 
-! ident_4="@(#)M_CLI2::prototype_and_cmd_args_to_nlist: create dictionary from prototype if not null and update from command line"
+! ident_5="@(#)M_CLI2::prototype_and_cmd_args_to_nlist: create dictionary from prototype if not null and update from command line"
 
 character(len=*),intent(in)           :: prototype
 character(len=*),intent(in),optional  :: string
@@ -1977,14 +3163,15 @@ integer                               :: ibig
 integer                               :: itrim
 integer                               :: iused
 
+   if(debug_m_cli2)write(*,gen)'<DEBUG>CMD_ARGS_TO_NLIST:START'
    G_passed_in=prototype                            ! make global copy for printing
    G_STRICT=.false.  ! strict short and long rules or allow -longname and --shortname
 
-   if(allocated(unnamed))deallocate(unnamed)
-   if(allocated(args))deallocate(args)
    ibig=longest_command_argument()                  ! bug in gfortran. len=0 should be fine
    ibig=max(ibig,1)
+   if(allocated(unnamed))deallocate(unnamed)
    allocate(character(len=ibig) :: unnamed(0))
+   if(allocated(args))deallocate(args)
    allocate(character(len=ibig) :: args(0))
 
    G_remaining_option_allowed=.false.
@@ -2007,6 +3194,12 @@ integer                               :: iused
          call update('version:v','F')
       endif
 
+      call locate_key('V',iused)
+      if(iused.le.0)then
+         call update('verbose')
+         call update('verbose:V','F')
+      endif
+
       call locate_key('u',iused)
       if(iused.le.0)then
          call update('usage')
@@ -2017,8 +3210,10 @@ integer                               :: iused
    endif
 
    if(present(string))then                          ! instead of command line arguments use another prototype string
+      if(debug_m_cli2)write(*,gen)'<DEBUG>CMD_ARGS_TO_NLIST:CALL PROTOTYPE_TO_DICTIONARY:STRING=',STRING
       call prototype_to_dictionary(string)          ! build dictionary from prototype
    else
+      if(debug_m_cli2)write(*,gen)'<DEBUG>CMD_ARGS_TO_NLIST:CALL CMD_ARGS_TO_DICTIONARY:CHECK=',.true.
       call cmd_args_to_dictionary(check=.true.)
    endif
 
@@ -2029,6 +3224,7 @@ integer                               :: iused
       endif
       remaining=G_remaining
    endif
+   if(debug_m_cli2)write(*,gen)'<DEBUG>CMD_ARGS_TO_NLIST:NORMAL END'
 end subroutine prototype_and_cmd_args_to_nlist
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
@@ -2036,15 +3232,20 @@ end subroutine prototype_and_cmd_args_to_nlist
 subroutine expand_response(name)
 character(len=*),intent(in) :: name
 character(len=:),allocatable :: prototype
+logical :: hold
+   if(debug_m_cli2)write(*,gen)'<DEBUG>EXPAND_RESPONSE:START:NAME=',name
    call get_prototype(name,prototype)
    if(prototype.ne.'')then
+      hold=G_append
       G_append=.false.
+      if(debug_m_cli2)write(*,gen)'<DEBUG>EXPAND_RESPONSE:CALL PROTOTYPE_TO_DICTIONARY:PROTOTYPE=',prototype
       call prototype_to_dictionary(prototype)       ! build dictionary from prototype
-      G_append=.true.
+      G_append=hold
    endif
+   if(debug_m_cli2)write(*,gen)'<DEBUG>EXPAND_RESPONSE:END'
 end subroutine expand_response
 !===================================================================================================================================
-subroutine get_prototype(name,prototype) ! process @name aliases
+subroutine get_prototype(name,prototype) ! process @name abbreviations
 character(len=*),intent(in) :: name
 character(len=:),allocatable,intent(out) :: prototype
 character(len=:),allocatable             :: filename
@@ -2062,6 +3263,7 @@ integer                                  :: lines_processed
    plain_name=name//'  '
    plain_name=trim(name(2:))
    os= '@' // get_env('OSTYPE',get_env('OS'))
+   if(debug_m_cli2)write(*,gen)'<DEBUG>GET_PROTOTYPE:OS=',OS
 
    search_for=''
    ! look for NAME.rsp and see if there is an @OS  section in it and position to it and read
@@ -2088,7 +3290,7 @@ integer                                  :: lines_processed
    call find_and_read_response_file(basename(get_name(),suffix=.true.))
    if(lines_processed.ne.0)return
 
-   write(*,gen)'<ERROR> response name ['//name//'] not found'
+   write(*,gen)'<ERROR> response name ['//trim(name)//'] not found'
    stop 1
 contains
 !===================================================================================================================================
@@ -2103,19 +3305,24 @@ integer                      :: ios
    prototype=''
    ! look for NAME.rsp
    filename=rname//'.rsp'
+   if(debug_m_cli2)write(*,gen)'<DEBUG>FIND_AND_READ_RESPONSE_FILE:FILENAME=',filename
 
    ! look for name.rsp in directories from environment variable assumed to be a colon-separated list of directories
    call split(get_env('CLI_RESPONSE_PATH'),paths)
    paths=[character(len=len(paths)) :: ' ',paths]
+   if(debug_m_cli2)write(*,gen)'<DEBUG>FIND_AND_READ_RESPONSE_FILE:PATHS=',paths
 
    do i=1,size(paths)
       testpath=join_path(paths(i),filename)
       lun=fileopen(testpath,message)
       if(lun.ne.-1)then
-         if(search_for.ne.'') call position_response()
+         if(debug_m_cli2)write(*,gen)'<DEBUG>FIND_AND_READ_RESPONSE_FILE:SEARCH_FOR=',search_for
+         if(search_for.ne.'') call position_response() ! set to end of file or where string was found
          call process_response()
-         if(lines_processed.ne.0)exit
+         if(debug_m_cli2)write(*,gen)'<DEBUG>FIND_AND_READ_RESPONSE_FILE:LINES_PROCESSED=',LINES_PROCESSED
          close(unit=lun,iostat=ios)
+         if(debug_m_cli2)write(*,gen)'<DEBUG>FIND_AND_READ_RESPONSE_FILE:CLOSE:LUN=',LUN,' IOSTAT=',IOS
+         if(lines_processed.ne.0)exit
       endif
    enddo
 
@@ -2127,6 +3334,7 @@ integer :: ios
    INFINITE: do
       read(unit=lun,fmt='(a)',iostat=ios,iomsg=message)line
       if(is_iostat_end(ios))then
+         if(debug_m_cli2)write(*,gen)'<DEBUG>POSITION_RESPONSE:EOF'
          backspace(lun,iostat=ios)
          exit INFINITE
       elseif(ios.ne.0)then
@@ -2160,25 +3368,28 @@ subroutine process_response()
          itrim=len_trim(array(1))+2
          line=line(itrim:)
 
-         select case(lower(array(1)))
+         PROCESS: select case(lower(array(1)))
          case('comment','#','')
          case('system','!','$')
+            if(G_options_only)exit PROCESS
             lines_processed= lines_processed+1
             call execute_command_line(line)
          case('options','option','-')
             lines_processed= lines_processed+1
             prototype=prototype//' '//trim(line)
          case('print','>','echo')
+            if(G_options_only)exit PROCESS
             lines_processed= lines_processed+1
             write(*,'(a)')trim(line)
          case('stop')
+            if(G_options_only)exit PROCESS
             write(*,'(a)')trim(line)
             stop
          case default
             if(array(1)(1:1).eq.'@')cycle INFINITE !skip adjacent @ lines from first
             lines_processed= lines_processed+1
             write(*,'(*(g0))')'unknown response keyword [',array(1),'] with options of [',trim(line),']'
-         end select
+         end select PROCESS
 
       endif
       enddo INFINITE
@@ -2207,6 +3418,7 @@ character(len=256)                       :: message_local
          write(*,gen)trim(message_local)
       endif
    endif
+   if(debug_m_cli2)write(*,gen)'<DEBUG>FILEOPEN:FILENAME=',filename,' LUN=',lun,' IOS=',IOS,' MESSAGE=',trim(message_local)
 
 end function fileopen
 !===================================================================================================================================
@@ -2391,6 +3603,7 @@ character(len=:),allocatable :: dummy
 character(len=:),allocatable :: oldvalue
 logical                      :: nomore
 logical                      :: next_mandatory
+   if(debug_m_cli2)write(*,gen)'<DEBUG>CMD_ARGS_TO_DICTIONARY:START'
    next_mandatory=.false.
    if(present(check))then
       check_local=check
@@ -2401,15 +3614,15 @@ logical                      :: next_mandatory
    pointer=0
    lastkeyword=' '
    G_keyword_single_letter=.true.
-   GET_ARGS: do i=1, command_argument_count()                        ! insert and replace entries
-      if(.not.get_next_argument())exit GET_ARGS                      ! get next argument
+   i=1
+   GET_ARGS: do while (get_next_argument()) ! insert and replace entries
 
-      if( current_argument .eq. '-' .and. nomore .eqv. .true. )then  ! sort of
-      elseif( current_argument .eq. '-')then                         ! sort of
+      if( current_argument .eq. '-' .and. nomore .eqv. .true. )then   ! sort of
+      elseif( current_argument .eq. '-')then                          ! sort of
          current_argument='"stdin"'
       endif
-      if( current_argument .eq. '--' .and. nomore .eqv. .true. )then ! -- was already encountered
-      elseif( current_argument .eq. '--' )then                       ! everything after this goes into the unnamed array
+      if( current_argument .eq. '--' .and. nomore .eqv. .true. )then  ! -- was already encountered
+      elseif( current_argument .eq. '--' )then                        ! everything after this goes into the unnamed array
          nomore=.true.
          pointer=0
          if(G_remaining_option_allowed)then
@@ -2468,7 +3681,7 @@ logical                      :: next_mandatory
          endif
          lastkeyword=trim(current_argument_padded(2:))
          next_mandatory=mandatory(pointer)
-      elseif(pointer.eq.0)then                                                                           ! unnamed arguments
+      elseif(pointer.eq.0)then                                       ! unnamed arguments
          if(G_remaining_on)then
             if(len(current_argument).lt.1)then
                G_remaining=G_remaining//'"" '
@@ -2482,6 +3695,7 @@ logical                      :: next_mandatory
          else
             imax=max(len(unnamed),len(current_argument))
             if(index(current_argument//' ','@').eq.1.and.G_response)then
+               if(debug_m_cli2)write(*,gen)'<DEBUG>CMD_ARGS_TO_DICTIONARY:1:CALL EXPAND_RESPONSE:CURRENT_ARGUMENT=',current_argument
                call expand_response(current_argument)
             else
                unnamed=[character(len=imax) :: unnamed,current_argument]
@@ -2507,6 +3721,7 @@ logical                      :: next_mandatory
                else
                   imax=max(len(unnamed),len(current_argument))
                   if(index(current_argument//' ','@').eq.1.and.G_response)then
+               if(debug_m_cli2)write(*,gen)'<DEBUG>CMD_ARGS_TO_DICTIONARY:2:CALL EXPAND_RESPONSE:CURRENT_ARGUMENT=',current_argument
                      call expand_response(current_argument)
                   else
                      unnamed=[character(len=imax) :: unnamed,current_argument]
@@ -2524,6 +3739,7 @@ logical                      :: next_mandatory
    if(lastkeyword.ne.'')then
       call ifnull()
    endif
+   if(debug_m_cli2)write(*,gen)'<DEBUG>CMD_ARGS_TO_DICTIONARY:NORMAL END'
 
 contains
 
@@ -2542,8 +3758,28 @@ function get_next_argument()
 !
 ! get next argument from command line into allocated variable current_argument
 !
+logical,save :: hadequal=.false.
+character(len=:),allocatable,save :: right_hand_side
 logical :: get_next_argument
-   get_next_argument=.true.
+integer :: iright
+integer :: iequal
+
+   if(hadequal)then  ! use left-over value from previous -NAME=VALUE syntax
+      current_argument=right_hand_side
+      right_hand_side=''
+      hadequal=.false.
+      get_next_argument=.true.
+      ilength=len(current_argument)
+      return
+   endif
+
+   if(i>command_argument_count())then
+      get_next_argument=.false.
+      return
+   else
+      get_next_argument=.true.
+   endif
+
    call get_command_argument(number=i,length=ilength,status=istatus)                              ! get next argument
    if(istatus /= 0) then                                                                          ! on error
       write(warn,*)'*prototype_and_cmd_args_to_nlist* error obtaining argument ',i,&
@@ -2562,7 +3798,26 @@ logical :: get_next_argument
             &'target length=',len(current_argument)
          get_next_argument=.false.
        endif
+
+       ! if an argument keyword and an equal before a space split on equal and save right hand side for next call
+       if(nomore)then
+       elseif(len(current_argument).eq.0)then
+       else
+          iright=index(current_argument,' ')
+          if(iright.eq.0)iright=len(current_argument)
+          iequal=index(current_argument(:iright),'=')
+          if(iequal.ne.0.and.current_argument(1:1).eq.'-')then
+             if(iequal.ne.len(current_argument))then
+                right_hand_side=current_argument(iequal+1:)
+             else
+                right_hand_side=''
+             endif
+             hadequal=.true.
+             current_argument=current_argument(:iequal-1)
+          endif
+       endif
    endif
+   i=i+1
 end function get_next_argument
 
 function maybe_value()
@@ -2702,7 +3957,7 @@ end subroutine print_dictionary
 FUNCTION strtok(source_string,itoken,token_start,token_end,delimiters) result(strtok_status)
 ! JSU- 20151030
 
-! ident_5="@(#)M_CLI2::strtok(3f): Tokenize a string"
+! ident_6="@(#)M_CLI2::strtok(3f): Tokenize a string"
 
 character(len=*),intent(in)  :: source_string    ! Source string to tokenize.
 character(len=*),intent(in)  :: delimiters       ! list of separator characters. May change between calls
@@ -3022,7 +4277,7 @@ end subroutine get_fixedarray_class
 !===================================================================================================================================
 subroutine get_anyarray_l(keyword,larray,delimiters)
 
-! ident_6="@(#)M_CLI2::get_anyarray_l(3f): given keyword fetch logical array from string in dictionary(F on err)"
+! ident_7="@(#)M_CLI2::get_anyarray_l(3f): given keyword fetch logical array from string in dictionary(F on err)"
 
 character(len=*),intent(in)  :: keyword                    ! the dictionary keyword (in form VERB_KEYWORD) to retrieve
 logical,allocatable          :: larray(:)                  ! convert value to an array
@@ -3069,7 +4324,7 @@ end subroutine get_anyarray_l
 !===================================================================================================================================
 subroutine get_anyarray_d(keyword,darray,delimiters)
 
-! ident_7="@(#)M_CLI2::get_anyarray_d(3f): given keyword fetch dble value array from Language Dictionary (0 on err)"
+! ident_8="@(#)M_CLI2::get_anyarray_d(3f): given keyword fetch dble value array from Language Dictionary (0 on err)"
 
 character(len=*),intent(in)           :: keyword      ! keyword to retrieve value from dictionary
 real(kind=dp),allocatable,intent(out) :: darray(:)    ! function type
@@ -3174,7 +4429,7 @@ end subroutine get_anyarray_c
 !===================================================================================================================================
 subroutine get_args_fixed_length_a_array(keyword,strings,delimiters)
 
-! ident_8="@(#)M_CLI2::get_args_fixed_length_a_array(3f): Fetch strings value for specified KEYWORD from the lang. dictionary"
+! ident_9="@(#)M_CLI2::get_args_fixed_length_a_array(3f): Fetch strings value for specified KEYWORD from the lang. dictionary"
 
 ! This routine trusts that the desired keyword exists. A blank is returned if the keyword is not in the dictionary
 character(len=*),intent(in)          :: keyword       ! name to look up in dictionary
@@ -3306,7 +4561,7 @@ end subroutine get_fixedarray_l
 !===================================================================================================================================
 subroutine get_fixedarray_fixed_length_c(keyword,strings,delimiters)
 
-! ident_9="@(#)M_CLI2::get_fixedarray_fixed_length_c(3f): Fetch strings value for specified KEYWORD from the lang. dictionary"
+! ident_10="@(#)M_CLI2::get_fixedarray_fixed_length_c(3f): Fetch strings value for specified KEYWORD from the lang. dictionary"
 
 ! This routine trusts that the desired keyword exists. A blank is returned if the keyword is not in the dictionary
 character(len=*)                     :: strings(:)
@@ -3371,7 +4626,7 @@ end subroutine get_scalar_i
 !===================================================================================================================================
 subroutine get_scalar_anylength_c(keyword,string)
 
-! ident_10="@(#)M_CLI2::get_scalar_anylength_c(3f): Fetch string value for specified KEYWORD from the lang. dictionary"
+! ident_11="@(#)M_CLI2::get_scalar_anylength_c(3f): Fetch string value for specified KEYWORD from the lang. dictionary"
 
 ! This routine trusts that the desired keyword exists. A blank is returned if the keyword is not in the dictionary
 character(len=*),intent(in)   :: keyword              ! name to look up in dictionary
@@ -3389,7 +4644,7 @@ end subroutine get_scalar_anylength_c
 !===================================================================================================================================
 elemental impure subroutine get_args_fixed_length_scalar_c(keyword,string)
 
-! ident_11="@(#)M_CLI2::get_args_fixed_length_scalar_c(3f): Fetch string value for specified KEYWORD from the lang. dictionary"
+! ident_12="@(#)M_CLI2::get_args_fixed_length_scalar_c(3f): Fetch string value for specified KEYWORD from the lang. dictionary"
 
 ! This routine trusts that the desired keyword exists. A blank is returned if the keyword is not in the dictionary
 character(len=*),intent(in)   :: keyword              ! name to look up in dictionary
@@ -3503,13 +4758,16 @@ end function longest_command_argument
 subroutine journal(where, g0, g1, g2, g3, g4, g5, g6, g7, g8, g9, ga, gb, gc, gd, ge, gf, gg, gh, gi, gj, nospace)
 implicit none
 
-! ident_12="@(#)M_CLI2::journal(3f): writes a message to a string composed of any standard scalar types"
+! ident_13="@(#)M_CLI2::journal(3f): writes a message to a string composed of any standard scalar types"
 
 character(len=*),intent(in)   :: where
 class(*),intent(in)           :: g0
 class(*),intent(in),optional  :: g1, g2, g3, g4, g5, g6, g7, g8 ,g9
 class(*),intent(in),optional  :: ga, gb, gc, gd, ge, gf, gg, gh ,gi, gj
 logical,intent(in),optional   :: nospace
+if(debug_m_cli2)write(*,*)'<DEBUG>JOURNAL:',present(g1)
+if(debug_m_cli2)write(*,*)'<DEBUG>JOURNAL:',present(g2)
+if(debug_m_cli2)write(*,*)'<DEBUG>JOURNAL:',present(nospace)
 write(*,'(a)')str(g0, g1, g2, g3, g4, g5, g6, g7, g8, g9, ga, gb, gc, gd, ge, gf, gg, gh, gi, gj ,nospace)
 end subroutine journal
 !===================================================================================================================================
@@ -3593,7 +4851,7 @@ function msg_scalar(generic0, generic1, generic2, generic3, generic4, generic5, 
                   & nospace)
 implicit none
 
-! ident_13="@(#)M_CLI2::msg_scalar(3fp): writes a message to a string composed of any standard scalar types"
+! ident_14="@(#)M_CLI2::msg_scalar(3fp): writes a message to a string composed of any standard scalar types"
 
 class(*),intent(in),optional  :: generic0, generic1, generic2, generic3, generic4
 class(*),intent(in),optional  :: generic5, generic6, generic7, generic8, generic9
@@ -3604,6 +4862,7 @@ character(len=:), allocatable :: msg_scalar
 character(len=4096)           :: line
 integer                       :: istart
 integer                       :: increment
+   if(debug_m_cli2)write(*,gen)'<DEBUG>:MSG_SCALAR'
    if(present(nospace))then
       if(nospace)then
          increment=1
@@ -3613,10 +4872,13 @@ integer                       :: increment
    else
       increment=2
    endif
+   if(debug_m_cli2)write(*,gen)'<DEBUG>:MSG_SCALAR'
 
    istart=1
    line=''
+   if(debug_m_cli2)write(*,gen)'<DEBUG>:MSG_SCALAR:CALL GENERIC:GENERIC0'
    if(present(generic0))call print_generic(generic0)
+   if(debug_m_cli2)write(*,gen)'<DEBUG>:MSG_SCALAR:CALL GENERIC:GENERIC1'
    if(present(generic1))call print_generic(generic1)
    if(present(generic2))call print_generic(generic2)
    if(present(generic3))call print_generic(generic3)
@@ -3642,18 +4904,28 @@ contains
 subroutine print_generic(generic)
 use,intrinsic :: iso_fortran_env, only : int8, int16, int32, int64, real32, real64, real128
 class(*),intent(in) :: generic
+   if(debug_m_cli2)write(*,gen)'<DEBUG>PRINT_GENERIC:START'
+   if(debug_m_cli2)write(*,gen)'<DEBUG>PRINT_GENERIC:LINE',trim(line)
    select type(generic)
       type is (integer(kind=int8));     write(line(istart:),'(i0)') generic
       type is (integer(kind=int16));    write(line(istart:),'(i0)') generic
       type is (integer(kind=int32));    write(line(istart:),'(i0)') generic
       type is (integer(kind=int64));    write(line(istart:),'(i0)') generic
       type is (real(kind=real32));      write(line(istart:),'(1pg0)') generic
-      type is (real(kind=real64));      write(line(istart:),'(1pg0)') generic
+      type is (real(kind=real64))
+         if(debug_m_cli2)write(*,gen)'<DEBUG>PRINT_GENERIC:REAL64'
+         write(line(istart:),'(1pg0)') generic
       !*! DOES NOT WORK WITH NVFORTRAN: type is (real(kind=real128));     write(line(istart:),'(1pg0)') generic
-      type is (logical);                write(line(istart:),'(l1)') generic
-      type is (character(len=*));       write(line(istart:),'(a)') trim(generic)
+      type is (logical)
+         if(debug_m_cli2)write(*,gen)'<DEBUG>PRINT_GENERIC:REAL64'
+         write(line(istart:),'(l1)') generic
+      type is (character(len=*))
+         if(debug_m_cli2)write(*,gen)'<DEBUG>PRINT_GENERIC:CHARACTER'
+         if(debug_m_cli2)write(*,gen)'<DEBUG>PRINT_GENERIC:ISTART:',istart
+         write(line(istart:),'(a)') trim(generic)
       type is (complex);                write(line(istart:),'("(",1pg0,",",1pg0,")")') generic
    end select
+   if(debug_m_cli2)write(*,gen)'<DEBUG>PRINT_GENERIC:START'
    istart=len_trim(line)+increment
 end subroutine print_generic
 !===================================================================================================================================
@@ -3664,7 +4936,7 @@ end function msg_scalar
 function msg_one(generic0,generic1, generic2, generic3, generic4, generic5, generic6, generic7, generic8, generic9,nospace)
 implicit none
 
-! ident_14="@(#)M_CLI2::msg_one(3fp): writes a message to a string composed of any standard one dimensional types"
+! ident_15="@(#)M_CLI2::msg_one(3fp): writes a message to a string composed of any standard one dimensional types"
 
 class(*),intent(in)           :: generic0(:)
 class(*),intent(in),optional  :: generic1(:), generic2(:), generic3(:), generic4(:), generic5(:)
@@ -3713,7 +4985,10 @@ integer :: i
       !*! DOES NOT WORK WITH nvfortran: type is (real(kind=real128));     write(line(istart:),'("[",*(1pg0,1x))') generic
       !*! DOES NOT WORK WITH ifort:     type is (real(kind=real256));     write(error_unit,'(1pg0)',advance='no') generic
       type is (logical);                write(line(istart:),'("[",*(l1,1x))') generic
-      type is (character(len=*));       write(line(istart:),'("[",:*("""",a,"""",1x))') (trim(generic(i)),i=1,size(generic))
+      type is (character(len=*))
+         if(debug_m_cli2)write(*,gen)'<DEBUG>PRINT_GENERIC:CHARACTER'
+         if(debug_m_cli2)write(*,gen)'<DEBUG>PRINT_GENERIC:ISTART:',istart
+         write(line(istart:),'("[",:*("""",a,"""",1x))') (trim(generic(i)),i=1,size(generic))
       type is (complex);                write(line(istart:),'("[",*("(",1pg0,",",1pg0,")",1x))') generic
       class default
          call mystop(-22,'unknown type in *print_generic*')
@@ -3728,7 +5003,7 @@ end function msg_one
 !===================================================================================================================================
 function upper(str) result (string)
 
-! ident_15="@(#)M_CLI2::upper(3f): Changes a string to uppercase"
+! ident_16="@(#)M_CLI2::upper(3f): Changes a string to uppercase"
 
 character(*), intent(in)      :: str
 character(:),allocatable      :: string
@@ -3746,7 +5021,7 @@ end function upper
 !===================================================================================================================================
 function lower(str) result (string)
 
-! ident_16="@(#)M_CLI2::lower(3f): Changes a string to lowercase over specified range"
+! ident_17="@(#)M_CLI2::lower(3f): Changes a string to lowercase over specified range"
 
 character(*), intent(In)     :: str
 character(:),allocatable     :: string
@@ -3764,7 +5039,7 @@ end function lower
 !===================================================================================================================================
 subroutine a2i(chars,valu,ierr)
 
-! ident_17="@(#)M_CLI2::a2i(3fp): subroutine returns integer value from string"
+! ident_18="@(#)M_CLI2::a2i(3fp): subroutine returns integer value from string"
 
 character(len=*),intent(in) :: chars                      ! input string
 integer,intent(out)         :: valu                       ! value read from input string
@@ -3785,7 +5060,7 @@ end subroutine a2i
 !----------------------------------------------------------------------------------------------------------------------------------
 subroutine a2d(chars,valu,ierr,onerr)
 
-! ident_18="@(#)M_CLI2::a2d(3fp): subroutine returns double value from string"
+! ident_19="@(#)M_CLI2::a2d(3fp): subroutine returns double value from string"
 
 !     1989,2016 John S. Urban.
 !
@@ -4008,7 +5283,7 @@ end subroutine a2d
 subroutine split(input_line,array,delimiters,order,nulls)
 !-----------------------------------------------------------------------------------------------------------------------------------
 
-! ident_19="@(#)M_CLI2::split(3f): parse string on delimiter characters and store tokens into an allocatable array"
+! ident_20="@(#)M_CLI2::split(3f): parse string on delimiter characters and store tokens into an allocatable array"
 
 !  John S. Urban
 !-----------------------------------------------------------------------------------------------------------------------------------
@@ -4285,7 +5560,7 @@ end subroutine crack_cmd
 !===================================================================================================================================
 function replace_str(targetline,old,new,ierr,cmd,range) result (newline)
 
-! ident_20="@(#)M_CLI2::replace_str(3f): Globally replace one substring for another in string"
+! ident_21="@(#)M_CLI2::replace_str(3f): Globally replace one substring for another in string"
 
 !-----------------------------------------------------------------------------------------------------------------------------------
 ! parameters
@@ -4643,7 +5918,7 @@ end function unquote
 !===================================================================================================================================
 function i2s(ivalue,fmt) result(outstr)
 
-! ident_21="@(#)M_CLI2::i2s(3fp): private function returns string given integer value"
+! ident_22="@(#)M_CLI2::i2s(3fp): private function returns string given integer value"
 
 integer,intent(in)           :: ivalue                         ! input value to convert to a string
 character(len=*),intent(in),optional :: fmt
@@ -4720,7 +5995,7 @@ function merge_str(str1,str2,expr) result(strout)
 ! for some reason the MERGE(3f) intrinsic requires the strings it compares to be of equal length
 ! make an alias for MERGE(3f) that makes the lengths the same before doing the comparison by padding the shorter one with spaces
 
-! ident_22="@(#)M_CLI2::merge_str(3f): pads first and second arguments to MERGE(3f) to same length"
+! ident_23="@(#)M_CLI2::merge_str(3f): pads first and second arguments to MERGE(3f) to same length"
 
 character(len=*),intent(in),optional :: str1
 character(len=*),intent(in),optional :: str2
@@ -4822,7 +6097,7 @@ end function merge_str
 logical function decodebase(string,basein,out_baseten)
 implicit none
 
-! ident_23="@(#)M_CLI2::decodebase(3f): convert whole number string in base [2-36] to base 10 number"
+! ident_24="@(#)M_CLI2::decodebase(3f): convert whole number string in base [2-36] to base 10 number"
 
 character(len=*),intent(in)  :: string
 integer,intent(in)           :: basein
@@ -4942,7 +6217,7 @@ end function decodebase
 !!    Public Domain
 function lenset(line,length) result(strout)
 
-! ident_24="@(#)M_CLI2::lenset(3f): return string trimmed or padded to specified length"
+! ident_25="@(#)M_CLI2::lenset(3f): return string trimmed or padded to specified length"
 
 character(len=*),intent(in)  ::  line
 integer,intent(in)           ::  length
@@ -5035,7 +6310,7 @@ end function lenset
 !!    Public Domain
 subroutine value_to_string(gval,chars,length,err,fmt,trimz)
 
-! ident_25="@(#)M_CLI2::value_to_string(3fp): subroutine returns a string from a value"
+! ident_26="@(#)M_CLI2::value_to_string(3fp): subroutine returns a string from a value"
 
 class(*),intent(in)                      :: gval
 character(len=*),intent(out)             :: chars
@@ -5151,7 +6426,7 @@ end subroutine value_to_string
 !!    Public Domain
 subroutine trimzeros_(string)
 
-! ident_26="@(#)M_CLI2::trimzeros_(3fp): Delete trailing zeros from numeric decimal string"
+! ident_27="@(#)M_CLI2::trimzeros_(3fp): Delete trailing zeros from numeric decimal string"
 
 ! if zero needs added at end assumes input string has room
 character(len=*)             :: string
@@ -5265,7 +6540,7 @@ end subroutine trimzeros_
 !!    Public Domain
 subroutine substitute(targetline,old,new,ierr,start,end)
 
-! ident_27="@(#)M_CLI2::substitute(3f): Globally substitute one substring for another in string"
+! ident_28="@(#)M_CLI2::substitute(3f): Globally substitute one substring for another in string"
 
 !-----------------------------------------------------------------------------------------------------------------------------------
 character(len=*)               :: targetline         ! input line to be changed
@@ -5509,7 +6784,7 @@ end subroutine substitute
 !!    Public Domain
 subroutine locate_c(list,value,place,ier,errmsg)
 
-! ident_28="@(#)M_CLI2::locate_c(3f): find PLACE in sorted character array where VALUE can be found or should be placed"
+! ident_29="@(#)M_CLI2::locate_c(3f): find PLACE in sorted character array where VALUE can be found or should be placed"
 
 character(len=*),intent(in)             :: value
 integer,intent(out)                     :: place
@@ -5647,7 +6922,7 @@ end subroutine locate_c
 !!    Public Domain
 subroutine remove_c(list,place)
 
-! ident_29="@(#)M_CLI2::remove_c(3fp): remove string from allocatable string array at specified position"
+! ident_30="@(#)M_CLI2::remove_c(3fp): remove string from allocatable string array at specified position"
 
 character(len=:),allocatable :: list(:)
 integer,intent(in)           :: place
@@ -5666,7 +6941,7 @@ integer                      :: ii, end
 end subroutine remove_c
 subroutine remove_l(list,place)
 
-! ident_30="@(#)M_CLI2::remove_l(3fp): remove value from allocatable array at specified position"
+! ident_31="@(#)M_CLI2::remove_l(3fp): remove value from allocatable array at specified position"
 
 logical,allocatable    :: list(:)
 integer,intent(in)     :: place
@@ -5686,7 +6961,7 @@ integer                :: end
 end subroutine remove_l
 subroutine remove_i(list,place)
 
-! ident_31="@(#)M_CLI2::remove_i(3fp): remove value from allocatable array at specified position"
+! ident_32="@(#)M_CLI2::remove_i(3fp): remove value from allocatable array at specified position"
 integer,allocatable    :: list(:)
 integer,intent(in)     :: place
 integer                :: end
@@ -5801,7 +7076,7 @@ end subroutine remove_i
 !!    Public Domain
 subroutine replace_c(list,value,place)
 
-! ident_32="@(#)M_CLI2::replace_c(3fp): replace string in allocatable string array at specified position"
+! ident_33="@(#)M_CLI2::replace_c(3fp): replace string in allocatable string array at specified position"
 
 character(len=*),intent(in)  :: value
 character(len=:),allocatable :: list(:)
@@ -5828,7 +7103,7 @@ integer                      :: end
 end subroutine replace_c
 subroutine replace_l(list,value,place)
 
-! ident_33="@(#)M_CLI2::replace_l(3fp): place value into allocatable array at specified position"
+! ident_34="@(#)M_CLI2::replace_l(3fp): place value into allocatable array at specified position"
 
 logical,allocatable   :: list(:)
 logical,intent(in)    :: value
@@ -5848,7 +7123,7 @@ integer               :: end
 end subroutine replace_l
 subroutine replace_i(list,value,place)
 
-! ident_34="@(#)M_CLI2::replace_i(3fp): place value into allocatable array at specified position"
+! ident_35="@(#)M_CLI2::replace_i(3fp): place value into allocatable array at specified position"
 
 integer,intent(in)    :: value
 integer,allocatable   :: list(:)
@@ -5955,7 +7230,7 @@ end subroutine replace_i
 !!    Public Domain
 subroutine insert_c(list,value,place)
 
-! ident_35="@(#)M_CLI2::insert_c(3fp): place string into allocatable string array at specified position"
+! ident_36="@(#)M_CLI2::insert_c(3fp): place string into allocatable string array at specified position"
 
 character(len=*),intent(in)  :: value
 character(len=:),allocatable :: list(:)
@@ -5989,7 +7264,7 @@ integer                      :: end
 end subroutine insert_c
 subroutine insert_l(list,value,place)
 
-! ident_36="@(#)M_CLI2::insert_l(3fp): place value into allocatable array at specified position"
+! ident_37="@(#)M_CLI2::insert_l(3fp): place value into allocatable array at specified position"
 
 logical,allocatable   :: list(:)
 logical,intent(in)    :: value
@@ -6014,7 +7289,7 @@ integer               :: end
 end subroutine insert_l
 subroutine insert_i(list,value,place)
 
-! ident_37="@(#)M_CLI2::insert_i(3fp): place value into allocatable array at specified position"
+! ident_38="@(#)M_CLI2::insert_i(3fp): place value into allocatable array at specified position"
 
 integer,allocatable   :: list(:)
 integer,intent(in)    :: value
@@ -6044,7 +7319,7 @@ subroutine many_args(n0,g0, n1,g1, n2,g2, n3,g3, n4,g4, n5,g5, n6,g6, n7,g7, n8,
                    & na,ga, nb,gb, nc,gc, nd,gd, ne,ge, nf,gf, ng,gg, nh,gh, ni,gi, nj,gj )
 implicit none
 
-! ident_38="@(#)M_CLI2::many_args(3fp): allow for multiple calls to get_args(3f)"
+! ident_39="@(#)M_CLI2::many_args(3fp): allow for multiple calls to get_args(3f)"
 
 character(len=*),intent(in)          :: n0, n1
 character(len=*),intent(in),optional ::         n2, n3, n4, n5, n6, n7, n8, n9, na, nb, nc, nd, ne, nf, ng, nh, ni, nj
@@ -6223,7 +7498,7 @@ end subroutine mystop
 !===================================================================================================================================
 function atleast(line,length,pattern) result(strout)
 
-! ident_39="@(#)M_strings::atleast(3f): return string padded to at least specified length"
+! ident_40="@(#)M_strings::atleast(3f): return string padded to at least specified length"
 
 character(len=*),intent(in)                :: line
 integer,intent(in)                         :: length
@@ -6240,7 +7515,7 @@ end function atleast
 !===================================================================================================================================
 subroutine locate_key(value,place)
 
-! ident_40="@(#)M_CLI2::locate_key(3f): find PLACE in sorted character array where VALUE can be found or should be placed"
+! ident_41="@(#)M_CLI2::locate_key(3f): find PLACE in sorted character array where VALUE can be found or should be placed"
 
 character(len=*),intent(in)             :: value
 integer,intent(out)                     :: place
@@ -6277,18 +7552,43 @@ end module M_CLI2
  
 !>>>>> ././src/fpm_filesystem.f90
 module fpm_filesystem
+use,intrinsic :: iso_fortran_env, only : stdin=>input_unit, stdout=>output_unit, stderr=>error_unit
     use fpm_environment, only: get_os_type, &
                                OS_UNKNOWN, OS_LINUX, OS_MACOS, OS_WINDOWS, &
                                OS_CYGWIN, OS_SOLARIS, OS_FREEBSD
-    use fpm_strings, only: f_string, string_t, split
+    use fpm_environment, only: separator, get_env
+    use fpm_strings, only: f_string, replace, string_t, split
     implicit none
     private
-    public :: basename, canon_path, dirname, is_dir, join_path, number_of_rows, read_lines, list_files,&
-            mkdir, exists, get_temp_filename, windows_path, getline, delete_file
+    public :: basename, canon_path, dirname, is_dir, join_path, number_of_rows, read_lines, list_files, env_variable, &
+            mkdir, exists, get_temp_filename, windows_path, unix_path, getline, delete_file, to_fortran_name
+    public :: which
+    public :: fileopen, fileclose, filewrite, warnwrite
 
     integer, parameter :: LINE_BUFFER_LEN = 1000
 
 contains
+
+
+subroutine env_variable(var, name)
+   character(len=:), allocatable, intent(out) :: var
+   character(len=*), intent(in) :: name
+   integer :: length, stat
+
+   call get_environment_variable(name, length=length, status=stat)
+   if (stat /= 0) return
+
+   allocate(character(len=length) :: var)
+
+   if (length > 0) then
+      call get_environment_variable(name, var, status=stat)
+      if (stat /= 0) then
+         deallocate(var)
+         return
+      end if
+   end if
+
+end subroutine env_variable
 
 
 function basename(path,suffix) result (base)
@@ -6330,7 +7630,7 @@ function canon_path(path) result(canon)
     ! Canonicalize path for comparison
     !  Handles path string redundancies
     !  Does not test existence of path
-    ! 
+    !
     ! To be replaced by realpath/_fullname in stdlib_os
     !
     character(*), intent(in) :: path
@@ -6384,7 +7684,7 @@ function canon_path(path) result(canon)
             end if
 
         end if
-        
+
 
         temp(j:j) = nixpath(i:i)
         j = j + 1
@@ -6402,30 +7702,28 @@ function dirname(path) result (dir)
     character(*), intent(in) :: path
     character(:), allocatable :: dir
 
-    character(:), allocatable :: file_parts(:)
-
     dir = path(1:scan(path,'/\',back=.true.))
 
 end function dirname
 
 
-logical function is_dir(dir) 
-    character(*), intent(in) :: dir 
-    integer :: stat 
+logical function is_dir(dir)
+    character(*), intent(in) :: dir
+    integer :: stat
 
-    select case (get_os_type()) 
+    select case (get_os_type())
 
     case (OS_UNKNOWN, OS_LINUX, OS_MACOS, OS_CYGWIN, OS_SOLARIS, OS_FREEBSD)
-        call execute_command_line("test -d " // dir , exitstat=stat) 
+        call execute_command_line("test -d " // dir , exitstat=stat)
 
-    case (OS_WINDOWS) 
-        call execute_command_line('cmd /c "if not exist ' // windows_path(dir) // '\ exit /B 1"', exitstat=stat) 
+    case (OS_WINDOWS)
+        call execute_command_line('cmd /c "if not exist ' // windows_path(dir) // '\ exit /B 1"', exitstat=stat)
 
-    end select 
+    end select
 
-    is_dir = (stat == 0) 
+    is_dir = (stat == 0)
 
-end function is_dir 
+end function is_dir
 
 
 function join_path(a1,a2,a3,a4,a5) result(path)
@@ -6572,7 +7870,7 @@ recursive subroutine list_files(dir, files, recurse)
             do i=1,size(files)
                 if (is_dir(files(i)%s)) then
 
-                    call list_files(files(i)%s, dir_files, recurse=.true.) 
+                    call list_files(files(i)%s, dir_files, recurse=.true.)
                     sub_dir_files = [sub_dir_files, dir_files]
 
                 end if
@@ -6604,7 +7902,7 @@ function get_temp_filename() result(tempfile)
 
     type(c_ptr) :: c_tempfile_ptr
     character(len=1), pointer :: c_tempfile(:)
-    
+
     interface
 
         function c_tempnam(dir,pfx) result(tmp) bind(c,name="tempnam")
@@ -6646,7 +7944,7 @@ function windows_path(path) result(winpath)
         winpath(idx:idx) = '\'
         idx = index(winpath,'/')
     end do
-    
+
 end function windows_path
 
 
@@ -6665,7 +7963,7 @@ function unix_path(path) result(nixpath)
         nixpath(idx:idx) = '/'
         idx = index(nixpath,'\')
     end do
-    
+
 end function unix_path
 
 
@@ -6721,6 +8019,191 @@ subroutine delete_file(file)
     end if
 end subroutine delete_file
 
+subroutine warnwrite(fname,data)
+!> write trimmed character data to a file if it does not exist
+character(len=*),intent(in) :: fname
+character(len=*),intent(in) :: data(:)
+
+    if(.not.exists(fname))then
+        call filewrite(fname,data)
+    else
+        write(stderr,'(*(g0,1x))')'<INFO>  ',fname,&
+        & 'already exists. Not overwriting'
+    endif
+
+end subroutine warnwrite
+
+subroutine fileopen(filename,lun,ier)
+! procedure to open filename as a sequential "text" file
+
+character(len=*),intent(in)   :: filename
+integer,intent(out)           :: lun
+integer,intent(out),optional  :: ier
+integer                       :: ios
+character(len=256)            :: message
+
+    message=' '
+    ios=0
+    if(filename.ne.' ')then
+        open(file=filename, &
+        & newunit=lun, &
+        & form='formatted', &    ! FORM    = FORMATTED | UNFORMATTED
+        & access='sequential', & ! ACCESS  = SEQUENTIAL| DIRECT | STREAM
+        & action='write', &      ! ACTION  = READ|WRITE| READWRITE
+        & position='rewind', &   ! POSITION= ASIS      | REWIND | APPEND
+        & status='new', &        ! STATUS  = NEW| REPLACE| OLD| SCRATCH| UNKNOWN
+        & iostat=ios, &
+        & iomsg=message)
+    else
+        lun=stdout
+        ios=0
+    endif
+    if(ios.ne.0)then
+        write(stderr,'(*(a:,1x))')&
+        & '<ERROR> *filewrite*:',filename,trim(message)
+        lun=-1
+        if(present(ier))then
+           ier=ios
+        else
+           stop 1
+        endif
+    endif
+
+end subroutine fileopen
+
+subroutine fileclose(lun,ier)
+! simple close of a LUN.  On error show message and stop (by default)
+integer,intent(in)    :: lun
+integer,intent(out),optional :: ier
+character(len=256)    :: message
+integer               :: ios
+    if(lun.ne.-1)then
+        close(unit=lun,iostat=ios,iomsg=message)
+        if(ios.ne.0)then
+            write(stderr,'(*(a:,1x))')'<ERROR> *filewrite*:',trim(message)
+            if(present(ier))then
+               ier=ios
+            else
+               stop 2
+            endif
+        endif
+    endif
+end subroutine fileclose
+
+subroutine filewrite(filename,filedata)
+! procedure to write filedata to file filename
+
+character(len=*),intent(in)           :: filename
+character(len=*),intent(in)           :: filedata(:)
+integer                               :: lun, i, ios
+character(len=256)                    :: message
+    call fileopen(filename,lun)
+    if(lun.ne.-1)then ! program currently stops on error on open, but might
+                      ! want it to continue so -1 (unallowed LUN) indicates error
+       ! write file
+       do i=1,size(filedata)
+           write(lun,'(a)',iostat=ios,iomsg=message)trim(filedata(i))
+           if(ios.ne.0)then
+               write(stderr,'(*(a:,1x))')&
+               & '<ERROR> *filewrite*:',filename,trim(message)
+               stop 4
+           endif
+       enddo
+    endif
+    ! close file
+    call fileclose(lun)
+
+end subroutine filewrite
+
+pure function to_fortran_name(string) result(res)
+    ! Returns string with special characters replaced with an underscore.
+    ! For now, only a hyphen is treated as a special character, but this can be
+    ! expanded to other characters if needed.
+    character(*), intent(in) :: string
+    character(len(string)) :: res
+    character, parameter :: SPECIAL_CHARACTERS(*) = ['-']
+    res = replace(string, SPECIAL_CHARACTERS, '_')
+end function to_fortran_name
+
+function which(command) result(pathname)
+!>
+!!##NAME
+!!     which(3f) - [M_io:ENVIRONMENT] given a command name find the pathname by searching
+!!                 the directories in the environment variable $PATH
+!!     (LICENSE:PD)
+!!
+!!##SYNTAX
+!!   function which(command) result(pathname)
+!!
+!!    character(len=*),intent(in)  :: command
+!!    character(len=:),allocatable :: pathname
+!!
+!!##DESCRIPTION
+!!    Given a command name find the first file with that name in the directories
+!!    specified by the environment variable $PATH.
+!!
+!!##OPTIONS
+!!    COMMAND   the command to search for
+!!
+!!##RETURNS
+!!    PATHNAME  the first pathname found in the current user path. Returns blank
+!!              if the command is not found.
+!!
+!!##EXAMPLE
+!!
+!!   Sample program:
+!!
+!!   Checking the error message and counting lines:
+!!
+!!     program demo_which
+!!     use M_io, only : which
+!!     implicit none
+!!        write(*,*)'ls is ',which('ls')
+!!        write(*,*)'dir is ',which('dir')
+!!        write(*,*)'install is ',which('install')
+!!     end program demo_which
+!!
+!!##AUTHOR
+!!    John S. Urban
+!!##LICENSE
+!!    Public Domain
+
+character(len=*),intent(in)     :: command
+character(len=:),allocatable    :: pathname, checkon, paths(:), exts(:)
+integer                         :: i, j
+   pathname=''
+   call split(get_env('PATH'),paths,delimiters=merge(';',':',separator().eq.'\'))
+   SEARCH: do i=1,size(paths)
+      checkon=trim(join_path(trim(paths(i)),command))
+      select case(separator())
+      case('/')
+         if(exists(checkon))then
+            pathname=checkon
+            exit SEARCH
+         endif
+      case('\')
+         if(exists(checkon))then
+            pathname=checkon
+            exit SEARCH
+         endif
+         if(exists(checkon//'.bat'))then
+            pathname=checkon//'.bat'
+            exit SEARCH
+         endif
+         if(exists(checkon//'.exe'))then
+            pathname=checkon//'.exe'
+            exit SEARCH
+         endif
+         call split(get_env('PATHEXT'),exts,delimiters=';')
+         do j=1,size(exts)
+            if(exists(checkon//'.'//trim(exts(j))))then
+               pathname=checkon//'.'//trim(exts(j))
+               exit SEARCH
+            endif
+         enddo
+      end select
+   enddo SEARCH
+end function which
 
 end module fpm_filesystem
  
@@ -7752,8 +9235,10 @@ use fpm_environment,  only : get_os_type, get_env, &
                              OS_UNKNOWN, OS_LINUX, OS_MACOS, OS_WINDOWS, &
                              OS_CYGWIN, OS_SOLARIS, OS_FREEBSD
 use M_CLI2,           only : set_args, lget, sget, unnamed, remaining, specified
+use M_CLI2,           only : get_subcommand, CLI_RESPONSE_FILE
 use fpm_strings,      only : lower, split
-use fpm_filesystem,   only : basename, canon_path
+use fpm_filesystem,   only : basename, canon_path, to_fortran_name, which
+use fpm_environment,  only : run, get_command_arguments_quoted
 use,intrinsic :: iso_fortran_env, only : stdin=>input_unit, &
                                        & stdout=>output_unit, &
                                        & stderr=>error_unit
@@ -7779,11 +9264,15 @@ type, extends(fpm_cmd_settings)  :: fpm_new_settings
     logical                      :: with_executable=.false.
     logical                      :: with_test=.false.
     logical                      :: with_lib=.true.
+    logical                      :: with_example=.false.
+    logical                      :: with_full=.false.
+    logical                      :: with_bare=.false.
     logical                      :: backfill=.true.
 end type
 
 type, extends(fpm_cmd_settings)  :: fpm_build_settings
     logical                      :: list=.false.
+    logical                      :: show_model=.false.
     character(len=:),allocatable :: compiler
     character(len=:),allocatable :: build_name
 end type
@@ -7798,7 +9287,12 @@ end type
 type, extends(fpm_run_settings)  :: fpm_test_settings
 end type
 
-type, extends(fpm_cmd_settings)  :: fpm_install_settings
+type, extends(fpm_build_settings) :: fpm_install_settings
+    character(len=:), allocatable :: prefix
+    character(len=:), allocatable :: bindir
+    character(len=:), allocatable :: libdir
+    character(len=:), allocatable :: includedir
+    logical :: no_rebuild
 end type
 
 !> Settings for interacting and updating with project dependencies
@@ -7810,7 +9304,7 @@ end type
 
 character(len=:),allocatable :: name
 character(len=:),allocatable :: os_type
-character(len=ibug),allocatable :: names(:) 
+character(len=ibug),allocatable :: names(:)
 character(len=:),allocatable :: tnames(:)
 
 character(len=:), allocatable :: version_text(:)
@@ -7820,7 +9314,7 @@ character(len=:), allocatable :: help_new(:), help_fpm(:), help_run(:), &
                  & help_list(:), help_list_dash(:), help_list_nodash(:)
 character(len=20),parameter :: manual(*)=[ character(len=20) ::&
 &  ' ',     'fpm',     'new',   'build',  'run',     &
-&  'test',  'runner',  'update','list',   'help',   'version'  ]
+&  'test',  'runner', 'install', 'update', 'list',   'help',   'version'  ]
 
 character(len=:), allocatable :: val_runner, val_build, val_compiler
 
@@ -7831,6 +9325,7 @@ contains
         character(len=4096)           :: cmdarg
         integer                       :: i
         integer                       :: widest
+        type(fpm_install_settings), allocatable :: install_settings
 
         call set_help()
         ! text for --version switch,
@@ -7845,19 +9340,17 @@ contains
             case default     ; os_type =  "OS Type:     UNKNOWN"
         end select
         version_text = [character(len=80) :: &
-         &  'Version:     0.1.2, alpha',                           &
+         &  'Version:     0.1.4, alpha',                           &
          &  'Program:     fpm(1)',                                     &
          &  'Description: A Fortran package manager and build system', &
          &  'Home Page:   https://github.com/fortran-lang/fpm',        &
          &  'License:     MIT',                                        &
          &  os_type]
+
         ! find the subcommand name by looking for first word on command
         ! not starting with dash
-        cmdarg = ''
-        do i = 1, command_argument_count()
-            call get_command_argument(i, cmdarg)
-            if(adjustl(cmdarg(1:1)) .ne. '-')exit
-        enddo
+        CLI_RESPONSE_FILE=.true.
+        cmdarg = get_subcommand()
 
         ! now set subcommand-specific help text and process commandline
         ! arguments. Then call subcommand routine
@@ -7867,12 +9360,13 @@ contains
             call set_args('&
             & --target " " &
             & --list F &
+            & --all F &
             & --release F&
             & --example F&
             & --runner " " &
             & --compiler "'//get_env('FPM_COMPILER','gfortran')//'" &
             & --verbose F&
-            & --',help_run,version_text,response=.true.)
+            & --',help_run,version_text)
 
             call check_build_vals()
 
@@ -7885,6 +9379,9 @@ contains
             if(specified('target') )then
                call split(sget('target'),tnames,delimiters=' ,:')
                names=[character(len=max(len(names),len(tnames))) :: names,tnames]
+            endif
+            if(lget('all'))then
+               names=[character(len=max(len(names),1)) :: names,'*']
             endif
 
             allocate(fpm_run_settings :: cmd_settings)
@@ -7903,9 +9400,10 @@ contains
             call set_args( '&
             & --release F &
             & --list F &
+            & --show-model F &
             & --compiler "'//get_env('FPM_COMPILER','gfortran')//'" &
             & --verbose F&
-            & --',help_build,version_text,response=.true.)
+            & --',help_build,version_text)
 
             call check_build_vals()
 
@@ -7914,6 +9412,7 @@ contains
             & build_name=val_build,&
             & compiler=val_compiler, &
             & list=lget('list'),&
+            & show_model=lget('show-model'),&
             & verbose=lget('verbose') )
 
         case('new')
@@ -7922,59 +9421,74 @@ contains
             & --lib F &
             & --app F &
             & --test F &
-            & --backfill F&
-            & --verbose F',&
-            & help_new, version_text,response=.true.)
+            & --example F &
+            & --backfill F &
+            & --full F &
+            & --bare F &
+            & --verbose:V F',&
+            & help_new, version_text)
             select case(size(unnamed))
             case(1)
                 write(stderr,'(*(g0,/))')'<ERROR> directory name required'
                 write(stderr,'(*(7x,g0,/))') &
-                & '<USAGE> fpm new NAME [--lib|--src] [--app] [--test] [--backfill]'
+                & '<USAGE> fpm new NAME [[--lib|--src] [--app] [--test] [--example]]|[--full|--bare] [--backfill]'
                 stop 1
             case(2)
                 name=trim(unnamed(2))
             case default
                 write(stderr,'(g0)')'<ERROR> only one directory name allowed'
                 write(stderr,'(7x,g0)') &
-                & '<USAGE> fpm new NAME [--lib|--src] [--app] [--test] [--backfill]'
+                & '<USAGE> fpm new NAME [[--lib|--src] [--app] [--test] [--example]]| [--full|--bare] [--backfill]'
                 stop 2
             end select
             !*! canon_path is not converting ".", etc.
             name=canon_path(name)
-            if( .not.is_fortran_name(basename(name)) )then
+            if( .not.is_fortran_name(to_fortran_name(basename(name))) )then
                 write(stderr,'(g0)') [ character(len=72) :: &
-                & '<ERROR>the new directory basename must be an allowed ', &
-                & '       Fortran name. It must be composed of 1 to 63 ASCII', &
-                & '       characters and start with a letter and be composed', &
-                & '       entirely of alphanumeric characters [a-zA-Z0-9]', &
-                & '       and underscores.']
+                & '<ERROR> the fpm project name must be made of up to 63 ASCII letters,', &
+                & '        numbers, underscores, or hyphens, and start with a letter.']
                 stop 4
             endif
 
             allocate(fpm_new_settings :: cmd_settings)
-
-            if (any( specified(['src ','lib ','app ','test']) ) )then
+            if (any( specified([character(len=10) :: 'src','lib','app','test','example','bare'])) &
+            & .and.lget('full') )then
+                write(stderr,'(*(a))')&
+                &'<ERROR> --full and any of [--src|--lib,--app,--test,--example,--bare]', &
+                &'        are mutually exclusive.'
+                stop 5
+            elseif (any( specified([character(len=10) :: 'src','lib','app','test','example','full'])) &
+            & .and.lget('bare') )then
+                write(stderr,'(*(a))')&
+                &'<ERROR> --bare and any of [--src|--lib,--app,--test,--example,--full]', &
+                &'        are mutually exclusive.'
+                stop 3
+            elseif (any( specified([character(len=10) :: 'src','lib','app','test','example']) ) )then
                 cmd_settings=fpm_new_settings(&
                  & backfill=lget('backfill'),               &
                  & name=name,                               &
                  & with_executable=lget('app'),             &
                  & with_lib=any([lget('lib'),lget('src')]), &
                  & with_test=lget('test'),                  &
+                 & with_example=lget('example'),            &
                  & verbose=lget('verbose') )
-            else
+            else  ! default if no specific directories are requested
                 cmd_settings=fpm_new_settings(&
                  & backfill=lget('backfill') ,           &
                  & name=name,                            &
                  & with_executable=.true.,               &
                  & with_lib=.true.,                      &
                  & with_test=.true.,                     &
+                 & with_example=lget('full'),            &
+                 & with_full=lget('full'),               &
+                 & with_bare=lget('bare'),               &
                  & verbose=lget('verbose') )
             endif
 
         case('help','manual')
             call set_args('&
             & --verbose F &
-            & ',help_help,version_text,response=.true.)
+            & ',help_help,version_text)
             if(size(unnamed).lt.2)then
                 if(unnamed(1).eq.'help')then
                    unnamed=['   ', 'fpm']
@@ -7995,6 +9509,8 @@ contains
                    help_text=[character(len=widest) :: help_text, help_new]
                 case('build  ' )
                    help_text=[character(len=widest) :: help_text, help_build]
+                case('install' )
+                   help_text=[character(len=widest) :: help_text, help_install]
                 case('run    ' )
                    help_text=[character(len=widest) :: help_text, help_run]
                 case('test   ' )
@@ -8018,17 +9534,32 @@ contains
             call printhelp(help_text)
 
         case('install')
-            call set_args('&
-            & --release F&
-            & --verbose F&
-            &', help_install, version_text,response=.true.)
+            call set_args('--release F --no-rebuild F --verbose F --prefix " " &
+                & --list F &
+                & --compiler "'//get_env('FPM_COMPILER','gfortran')//'" &
+                & --libdir "lib" --bindir "bin" --includedir "include"', &
+                help_install, version_text)
 
-            allocate(fpm_install_settings :: cmd_settings)
+            call check_build_vals()
+
+            allocate(install_settings)
+            install_settings = fpm_install_settings(&
+                list=lget('list'), &
+                build_name=val_build, &
+                compiler=val_compiler, &
+                no_rebuild=lget('no-rebuild'), &
+                verbose=lget('verbose'))
+            call get_char_arg(install_settings%prefix, 'prefix')
+            call get_char_arg(install_settings%libdir, 'libdir')
+            call get_char_arg(install_settings%bindir, 'bindir')
+            call get_char_arg(install_settings%includedir, 'includedir')
+            call move_alloc(install_settings, cmd_settings)
+
         case('list')
             call set_args('&
             & --list F&
             & --verbose F&
-            &', help_list, version_text,response=.true.)
+            &', help_list, version_text)
             call printhelp(help_list_nodash)
             if(lget('list'))then
                call printhelp(help_list_dash)
@@ -8041,7 +9572,7 @@ contains
             & --runner " " &
             & --compiler "'//get_env('FPM_COMPILER','gfortran')//'" &
             & --verbose F&
-            & --',help_test,version_text,response=.true.)
+            & --',help_test,version_text)
 
             call check_build_vals()
 
@@ -8070,7 +9601,7 @@ contains
 
         case('update')
             call set_args('--fetch-only F --verbose F --clean F', &
-                help_update, version_text,response=.true.)
+                help_update, version_text)
 
             if( size(unnamed) .gt. 1 )then
                 names=unnamed(2:)
@@ -8085,25 +9616,29 @@ contains
 
         case default
 
-            call set_args('&
-            & --list F&
-            & --verbose F&
-            &', help_fpm, version_text,response=.true.)
-            ! Note: will not get here if --version or --usage or --help
-            ! is present on commandline
-            help_text=help_usage
-            if(lget('list'))then
-               help_text=help_list_dash
-            elseif(len_trim(cmdarg).eq.0)then
-                write(stdout,'(*(a))')'Fortran Package Manager:'
-                write(stdout,'(*(a))')' '
-                call printhelp(help_list_nodash)
+            if(which('fpm-'//cmdarg).ne.'')then
+                call run('fpm-'//trim(cmdarg)//' '// get_command_arguments_quoted(),.false.)
             else
-                write(stderr,'(*(a))')'<ERROR> unknown subcommand [', &
-                 & trim(cmdarg), ']'
-                call printhelp(help_list_dash)
+               call set_args('&
+               & --list F&
+               & --verbose F&
+               &', help_fpm, version_text)
+               ! Note: will not get here if --version or --usage or --help
+               ! is present on commandline
+               help_text=help_usage
+               if(lget('list'))then
+                  help_text=help_list_dash
+               elseif(len_trim(cmdarg).eq.0)then
+                   write(stdout,'(*(a))')'Fortran Package Manager:'
+                   write(stdout,'(*(a))')' '
+                   call printhelp(help_list_nodash)
+               else
+                   write(stderr,'(*(a))')'<ERROR> unknown subcommand [', &
+                    & trim(cmdarg), ']'
+                   call printhelp(help_list_dash)
+               endif
+               call printhelp(help_text)
             endif
-            call printhelp(help_text)
 
         end select
     contains
@@ -8114,7 +9649,7 @@ contains
         if(val_compiler.eq.'') then
             val_compiler='gfortran'
         endif
-   
+
         val_build=trim(merge('release','debug  ',lget('release')))
 
     end subroutine check_build_vals
@@ -8169,6 +9704,7 @@ contains
    '  run       Run the local package application programs                  ', &
    '  test      Run the test programs                                       ', &
    '  update    Update and manage project dependencies                      ', &
+   '  install   Install project                                             ', &
    '                                                                        ', &
    ' Enter "fpm --list" for a brief list of subcommand options. Enter       ', &
    ' "fpm --help" or "fpm SUBCOMMAND --help" for detailed descriptions.     ', &
@@ -8177,13 +9713,15 @@ contains
    '                                                                                ', &
    ' build [--compiler COMPILER_NAME] [--release] [--list]                          ', &
    ' help [NAME(s)]                                                                 ', &
-   ' new NAME [--lib|--src] [--app] [--test] [--backfill]                           ', &
+   ' new NAME [[--lib|--src] [--app] [--test] [--example]]|                         ', &
+   '          [--full|--bare][--backfill]                                           ', &
    ' update [NAME(s)] [--fetch-only] [--clean] [--verbose]                          ', &
    ' list [--list]                                                                  ', &
-   ' run  [[--target] NAME(s)] [--release] [--runner "CMD"] [--list] [--example]    ', &
-   '      [--compiler COMPILER_NAME] [-- ARGS]                                      ', &
+   ' run  [[--target] NAME(s)|--all] [--example] [--release] [--runner "CMD"]       ', &
+   '      [--compiler COMPILER_NAME] [--list] [-- ARGS]                             ', &
    ' test [[--target] NAME(s)] [--release] [--runner "CMD"] [--list]                ', &
    '      [--compiler COMPILER_NAME] [-- ARGS]                                      ', &
+   ' install [--release] [--no-rebuild] [--prefix PATH] [options]                   ', &
    ' ']
     help_usage=[character(len=80) :: &
     '' ]
@@ -8262,7 +9800,7 @@ contains
     '                                                                       ', &
     'DESCRIPTION                                                            ', &
     '   fpm(1) is a package manager that helps you create Fortran projects  ', &
-    '   from source.                                                        ', &
+    '   from source -- it automatically determines dependencies!            ', &
     '                                                                       ', &
     '   Most significantly fpm(1) lets you draw upon other fpm(1) packages  ', &
     '   in distributed git(1) repositories as if the packages were a basic  ', &
@@ -8282,18 +9820,23 @@ contains
     '  + run   Run the local package binaries. defaults to all binaries for ', &
     '          that release.                                                ', &
     '  + test  Run the tests.                                               ', &
-    '  + help  Alternate method for displaying subcommand help.             ', &
+    '  + help  Alternate to the --help switch for displaying help text.     ', &
     '  + list  Display brief descriptions of all subcommands.               ', &
+    '  + install Install project                                            ', &
     '                                                                       ', &
     '  Their syntax is                                                      ', &
     '                                                                       ', &
-    '     build [--release] [--list] [--compiler COMPILER_NAME]             ', &
-    '     new NAME [--lib|--src] [--app] [--test] [--backfill]              ', &
-    '     update [NAME(s)] [--fetch-only] [--clean]                         ', &
-    '     run|test [[--target] NAME(s)] [--release] [--list]                ', &
-    '              [--runner "CMD"] [--compiler COMPILER_NAME] [-- ARGS]    ', &
-    '     help [NAME(s)]                                                    ', &
-    '     list [--list]                                                     ', &
+    '    build [--release] [--list] [--compiler COMPILER_NAME]              ', &
+    '    new NAME [[--lib|--src] [--app] [--test] [--example]]|             ', &
+   '              [--full|--bare][--backfill]                               ', &
+    '    update [NAME(s)] [--fetch-only] [--clean]                          ', &
+    '    run [[--target] NAME(s)|--all] [--release] [--list] [--example]    ', &
+    '        [--runner "CMD"] [--compiler COMPILER_NAME] [-- ARGS]          ', &
+    '    test [[--target] NAME(s)] [--release] [--list]                     ', &
+    '         [--runner "CMD"] [--compiler COMPILER_NAME] [-- ARGS]         ', &
+    '    help [NAME(s)]                                                     ', &
+    '    list [--list]                                                      ', &
+    '    install [--release] [--no-rebuild] [--prefix PATH] [options]       ', &
     '                                                                       ', &
     'SUBCOMMAND OPTIONS                                                     ', &
     '  --release  Builds or runs in release mode (versus debug mode). fpm(1)', &
@@ -8320,8 +9863,10 @@ contains
     '    fpm build                                                          ', &
     '    fpm test                                                           ', &
     '    fpm run                                                            ', &
+    '    fpm run --example                                                  ', &
     '    fpm new --help                                                     ', &
     '    fpm run myprogram --release -- -x 10 -y 20 --title "my title"      ', &
+    '    fpm install --prefix ~/.local                                      ', &
     '                                                                       ', &
     'SEE ALSO                                                               ', &
     '                                                                       ', &
@@ -8357,50 +9902,57 @@ contains
     ' run(1) - the fpm(1) subcommand to run project applications            ', &
     '                                                                       ', &
     'SYNOPSIS                                                               ', &
-    ' fpm run [[--target] NAME(s)][--release][--compiler COMPILER_NAME]     ', &
+    ' fpm run [[--target] NAME(s)|-all][--release][--compiler COMPILER_NAME]', &
     '         [--runner "CMD"] [--example] [--list][-- ARGS]                ', &
     '                                                                       ', &
     ' fpm run --help|--version                                              ', &
     '                                                                       ', &
     'DESCRIPTION                                                            ', &
-    ' Run applications you have built in your fpm(1) project.               ', &
-    ' By default applications specified in as "executable" in your package  ', &
-    ' manifest are used, alternatively also demonstration programs under    ', &
-    ' "example" can be used with this subcommand.                           ', &
+    ' Run the applications in your fpm(1) package. By default applications  ', &
+    ' in /app or specified as "executable" in your "fpm.toml" manifest are  ', &
+    ' used. Alternatively demonstration programs in example/ or specified in', &
+    ' the "example" section in "fpm.toml" can be executed. The applications ', &
+    ' are automatically rebuilt before being run if they are out of date.   ', &
     '                                                                       ', &
     'OPTIONS                                                                ', &
-    ' --target NAME(s)  optional list of specific names to execute.         ', &
-    '                   The default is to run all the applications in app/  ', &
-    '                   or the programs listed in the "fpm.toml" file.      ', &
-    ' --example  run example programs instead of applications               ', &
-    ' --release  selects the optimized build instead of the debug           ', &
-    '            build.                                                     ', &
+    ' --target NAME(s)  list of specific application names to execute.      ', &
+    '                   No name is required if only one application exists. ', &
+    '                   If no name is supplied and more than one candidate  ', &
+    '                   exists or a name has no match a list is produced    ', &
+    '                   and fpm(1) exits.                                   ', &
+    '                   Simple "globbing" is supported where "?" represents ', &
+    '                   any single character and "*" represents any string. ', &
+    '                   Therefore a quoted asterisk ''*'' runs all programs.  ', &
+    ' --all      An alias for "--target ''*''". All targets are selected.     ', &
+    ' --example  Run example programs instead of applications.              ', &
+    ' --release  selects the optimized build instead of the debug build.    ', &
     ' --compiler COMPILER_NAME  Specify a compiler name. The default is     ', &
     '                           "gfortran" unless set by the environment    ', &
     '                           variable FPM_COMPILER.                      ', &
     ' --runner CMD  A command to prefix the program execution paths with.   ', &
     '               see "fpm help runner" for further details.              ', &
-    ' --list     list candidates instead of building or running them        ', &
-    ' -- ARGS    optional arguments to pass to the program(s).              ', &
-    '            The same arguments are passed to all names                 ', &
-    '            specified.                                                 ', &
+    ' --list     list pathname of candidates instead of running them. Note  ', &
+    '            out-of-date candidates will still be rebuilt before being  ', &
+    '            listed.                                                    ', &
+    ' -- ARGS    optional arguments to pass to the program(s). The same     ', &
+    '            arguments are passed to all program names specified.       ', &
     '                                                                       ', &
     'EXAMPLES                                                               ', &
-    ' fpm(1) "run" project applications                                     ', &
+    ' fpm(1) - run project applications:                                    ', &
     '                                                                       ', &
-    '  # run default programs in /app or as specified in "fpm.toml"         ', &
-    '  fpm run                                                              ', &
+    '  # run all default programs in /app or as specified in "fpm.toml"     ', &
+    '  fpm run --all                                                        ', &
     '                                                                       ', &
-    '  # run default programs in /app or as specified in "fpm.toml"         ', &
-    '  # using the compiler command "f90".                                  ', &
+    '  # run default program built or to be built with the compiler command ', &
+    '  # "f90". If more than one app exists a list displays and target names', &
+    '  # are required.                                                      ', &
     '  fpm run --compiler f90                                               ', &
     '                                                                       ', &
-    '  # run example and demonstration programs instead of the default      ', &
-    '  # application programs (specified in "fpm.toml")                     ', &
-    '  fpm run --example                                                    ', &
+    '  # run example programs instead of the application programs.          ', &
+    '  fpm run --example ''*''                                                ', &
     '                                                                       ', &
     '  # run a specific program and pass arguments to the command           ', &
-    '  fpm run mytest -- -x 10 -y 20 --title "my title line"                ', &
+    '  fpm run myprog -- -x 10 -y 20 --title "my title line"                ', &
     '                                                                       ', &
     '  # run production version of two applications                         ', &
     '  fpm run --target prg1,prg2 --release                                 ', &
@@ -8427,6 +9979,7 @@ contains
     '    o src/     for modules and procedure source                        ', &
     '    o app/     main program(s) for applications                        ', &
     '    o test/    main program(s) and support files for project tests     ', &
+    '    o example/ main program(s) for example programs                    ', &
     ' Changed or new files found are rebuilt. The results are placed in     ', &
     ' the build/ directory.                                                 ', &
     '                                                                       ', &
@@ -8434,14 +9987,15 @@ contains
     ' specified in the "fpm.toml" file.                                     ', &
     '                                                                       ', &
     'OPTIONS                                                                ', &
-    ' --release  build in build/*_release instead of build/*_debug with     ', &
-    '            high optimization instead of full debug options.           ', &
-    ' --compiler COMPILER_NAME  Specify a compiler name. The default is     ', &
+    ' --release    build in build/*_release instead of build/*_debug with   ', &
+    '              high optimization instead of full debug options.         ', &
+    ' --compiler   COMPILER_NAME  Specify a compiler name. The default is   ', &
     '                           "gfortran" unless set by the environment    ', &
     '                           variable FPM_COMPILER.                      ', &
-    ' --list     list candidates instead of building or running them        ', &
-    ' --help     print this help and exit                                   ', &
-    ' --version  print program version information and exit                 ', &
+    ' --list       list candidates instead of building or running them      ', &
+    ' --show-model show the model and exit (do not build)                   ', &
+    ' --help       print this help and exit                                 ', &
+    ' --version    print program version information and exit               ', &
     '                                                                       ', &
     'EXAMPLES                                                               ', &
     ' Sample commands:                                                      ', &
@@ -8485,8 +10039,8 @@ contains
     'NAME                                                                   ', &
     ' new(1) - the fpm(1) subcommand to initialize a new project            ', &
     'SYNOPSIS                                                               ', &
-    ' fpm new NAME [--lib|--src] [--app] [--test] [--backfill]              ', &
-    '                                                                       ', &
+   '  fpm new NAME [[--lib|--src] [--app] [--test] [--example]]|            ', &
+   '      [--full|--bare][--backfill]                                       ', &
     ' fpm new --help|--version                                              ', &
     '                                                                       ', &
     'DESCRIPTION                                                            ', &
@@ -8499,7 +10053,7 @@ contains
     '   o adds a ".gitignore" file for ignoring the build/ directory        ', &
     '     (where fpm-generated output will be placed)                       ', &
     '                                                                       ', &
-    ' The basic default file structure is                                   ', &
+    ' The default file structure (that will be automatically scanned) is    ', &
     '                                                                       ', &
     '     NAME/                                                             ', &
     '       fpm.toml                                                        ', &
@@ -8509,20 +10063,29 @@ contains
     '       app/                                                            ', &
     '           main.f90                                                    ', &
     '       test/                                                           ', &
-    '           main.f90                                                    ', &
+    '           check.f90                                                   ', &
+    '       example/                                                        ', &
+    '           demo.f90                                                    ', &
+    '                                                                       ', &
+    ' Using this file structure is highly encouraged, particularly for      ', &
+    ' small packages primarily intended to be used as dependencies.         ', &
+    '                                                                       ', &
+    ' If you find this restrictive and need to customize the package        ', &
+    ' structure you will find using the --full switch creates a             ', &
+    ' heavily annotated manifest file with references to documentation      ', &
+    ' to aid in constructing complex package structures.                    ', &
     '                                                                       ', &
     ' Remember to update the information in the sample "fpm.toml"           ', &
     ' file with your name and e-mail address.                               ', &
     '                                                                       ', &
     'OPTIONS                                                                ', &
     ' NAME   the name of the project directory to create. The name          ', &
-    '        must be a valid Fortran name composed of 1 to 63               ', &
-    '        ASCII alphanumeric characters and underscores,                 ', &
-    '        starting with a letter.                                        ', &
+    '        must be made of up to 63 ASCII letters, digits, underscores,   ', &
+    '        or hyphens, and start with a letter.                           ', &
     '                                                                       ', &
-    ' The default is to create all of the src/, app/, and test/             ', &
-    ' directories. If any of the following options are specified            ', &
-    ' then only selected subdirectories are generated:                      ', &
+    ' The default is to create the src/, app/, and test/ directories.       ', &
+    ' If any of the following options are specified then only the           ', &
+    ' selected subdirectories are generated:                                ', &
     '                                                                       ', &
     ' --lib,--src  create directory src/ and a placeholder module           ', &
     '              named "NAME.f90" for use with subcommand "build".        ', &
@@ -8531,16 +10094,32 @@ contains
     ' --test       create directory test/ and a placeholder program         ', &
     '              for use with the subcommand "test". Note that sans       ', &
     '              "--lib" it really does not have anything to test.        ', &
+    ' --example    create directory example/ and a placeholder program      ', &
+    '              for use with the subcommand "run --example".             ', &
+    '              It is only created by default if "--full is" specified.  ', &
     '                                                                       ', &
-    ' So the default is equivalent to "fpm NAME --lib --app --test".        ', &
+    ' So the default is equivalent to                                        ',&
+    '                                                                       ', &
+    '    fpm NAME --lib --app --test                                        ', &
     '                                                                       ', &
     ' --backfill   By default the directory must not exist. If this         ', &
     '              option is present the directory may pre-exist and        ', &
     '              only subdirectories and files that do not                ', &
     '              already exist will be created. For example, if you       ', &
     '              previously entered "fpm new myname --lib" entering       ', &
-    '              "fpm new myname --backfill" will create the missing      ', &
-    '              app/ and test/ directories and programs.                 ', &
+    '              "fpm new myname -full --backfill" will create any missing', &
+    '              app/, example/, and test/ directories and programs.      ', &
+    '                                                                       ', &
+    ' --full       By default a minimal manifest file ("fpm.toml") is       ', &
+    '              created that depends on auto-discovery. With this        ', &
+    '              option a much more extensive manifest sample is written  ', &
+    '              and the example/ directory is created and populated.     ', &
+    '              It is designed to facilitate creating projects that      ', &
+    '              depend extensively on non-default build options.         ', &
+    '                                                                       ', &
+    ' --bare       A minimal manifest file ("fpm.toml") is created and      ', &
+    '              a ".gitignore" and "README.md" file is created but no    ', &
+    '              directories or sample Fortran is generated.              ', &
     '                                                                       ', &
     ' --help       print this help and exit                                 ', &
     ' --version    print program version information and exit               ', &
@@ -8552,8 +10131,14 @@ contains
     '   cd myproject       # Enter the new directory                        ', &
     '   # and run commands such as                                          ', &
     '   fpm build                                                           ', &
-    '   fpm run            # run example application program                ', &
-    '   fpm test           # run example test program                       ', &
+    '   fpm run            # run example application program(s)             ', &
+    '   fpm test           # run example test program(s)                    ', &
+    '   fpm run --example  # run example program(s)                         ', &
+    '                                                                       ', &
+    '   fpm new A --full # create example/ and an annotated fpm.toml as well', &
+    '   fpm new A --bare # create no directories                            ', &
+    '   create any missing files in current directory                       ', &
+    '   fpm new `pwd` --full --backfill                                     ', &
     '' ]
     help_test=[character(len=80) :: &
     'NAME                                                                   ', &
@@ -8600,7 +10185,7 @@ contains
     '' ]
     help_update=[character(len=80) :: &
     'NAME', &
-    ' fpm-update(1) - manage project dependencies', &
+    ' update(1) - manage project dependencies', &
     '', &
     'SYNOPSIS', &
     ' fpm update [--fetch-only] [--clean] [--verbose] [NAME(s)]', &
@@ -8618,11 +10203,57 @@ contains
     ' The fpm(1) home page at https://github.com/fortran-lang/fpm', &
     '' ]
     help_install=[character(len=80) :: &
-    ' fpm(1) subcommand "install"                                           ', &
-    '                                                                       ', &
-    '<USAGE> fpm install NAME                                               ', &
+    'NAME', &
+    ' install(1) - install fpm projects', &
+    '', &
+    'SYNOPSIS', &
+    ' fpm install [--release] [--list] [--no-rebuild] [--prefix DIR]', &
+    '             [--bindir DIR] [--libdir DIR] [--includedir DIR]', &
+    '             [--verbose]', &
+    '', &
+    'DESCRIPTION', &
+    ' Subcommand to install fpm projects. Running install will export the', &
+    ' current project to the selected prefix, this will by default install all', &
+    ' executables (tests and examples are excluded) which are part of the projects.', &
+    ' Libraries and module files are only installed for projects requiring the', &
+    ' installation of those components in the package manifest.', &
+    '', &
+    'OPTIONS', &
+    ' --list            list all installable targets for this project,', &
+    '                   but do not install any of them', &
+    ' --release         selects the optimized build instead of the debug build', &
+    ' --no-rebuild      do not rebuild project before installation', &
+    ' --prefix DIR      path to installation directory (requires write access),', &
+    '                   the default prefix on Unix systems is $HOME/.local', &
+    '                   and %APPDATA%\local on Windows', &
+    ' --bindir DIR      subdirectory to place executables in (default: bin)', &
+    ' --libdir DIR      subdirectory to place libraries and archives in', &
+    '                   (default: lib)', &
+    ' --includedir DIR  subdirectory to place headers and module files in', &
+    '                   (default: include)', &
+    ' --verbose         print more information', &
+    '', &
+    'EXAMPLES', &
+    ' 1. Install release version of project:', &
+    '', &
+    '    fpm install --release', &
+    '', &
+    ' 2. Install the project without rebuilding the executables:', &
+    '', &
+    '    fpm install --no-rebuild', &
+    '', &
+    ' 3. Install executables to a custom prefix into the exe directory:', &
+    '', &
+    '    fpm install --prefix $PWD --bindir exe', &
     '' ]
     end subroutine set_help
+
+    subroutine get_char_arg(var, arg)
+      character(len=:), allocatable, intent(out) :: var
+      character(len=*), intent(in) :: arg
+      var = sget(arg)
+      if (len_trim(var) == 0) deallocate(var)
+    end subroutine get_char_arg
 
 end module fpm_command_line
  
@@ -8891,6 +10522,293 @@ contains
 
 
 end module fpm_git
+ 
+ 
+!>>>>> ././src/fpm/installer.f90
+!> Implementation of an installer object.
+!>
+!> The installer provides a way to install objects to their respective directories
+!> in the installation prefix, a generic install command allows to install
+!> to any directory within the prefix.
+module fpm_installer
+  use, intrinsic :: iso_fortran_env, only : output_unit
+  use fpm_environment, only : get_os_type, os_is_unix
+  use fpm_error, only : error_t, fatal_error
+  use fpm_filesystem, only : join_path, mkdir, exists, unix_path, windows_path, &
+    env_variable
+  implicit none
+  private
+
+  public :: installer_t, new_installer
+
+
+  !> Declaration of the installer type
+  type :: installer_t
+    !> Path to installation directory
+    character(len=:), allocatable :: prefix
+    !> Binary dir relative to the installation prefix
+    character(len=:), allocatable :: bindir
+    !> Library directory relative to the installation prefix
+    character(len=:), allocatable :: libdir
+    !> Include directory relative to the installation prefix
+    character(len=:), allocatable :: includedir
+    !> Output unit for informative printout
+    integer :: unit = output_unit
+    !> Verbosity of the installer
+    integer :: verbosity = 1
+    !> Command to copy objects into the installation prefix
+    character(len=:), allocatable :: copy
+    !> Cached operating system
+    integer :: os
+  contains
+    !> Install an executable in its correct subdirectory
+    procedure :: install_executable
+    !> Install a library in its correct subdirectory
+    procedure :: install_library
+    !> Install a header/module in its correct subdirectory
+    procedure :: install_header
+    !> Install a generic file into a subdirectory in the installation prefix
+    procedure :: install
+    !> Run an installation command, type-bound for unit testing purposes
+    procedure :: run
+    !> Create a new directory in the prefix, type-bound for unit testing purposes
+    procedure :: make_dir
+  end type installer_t
+
+  !> Default name of the binary subdirectory
+  character(len=*), parameter :: default_bindir = "bin"
+
+  !> Default name of the library subdirectory
+  character(len=*), parameter :: default_libdir = "lib"
+
+  !> Default name of the include subdirectory
+  character(len=*), parameter :: default_includedir = "include"
+
+  !> Default name of the installation prefix on Unix platforms
+  character(len=*), parameter :: default_prefix_unix = "/usr/local"
+
+  !> Default name of the installation prefix on Windows platforms
+  character(len=*), parameter :: default_prefix_win = "C:\"
+
+  !> Copy command on Unix platforms
+  character(len=*), parameter :: default_copy_unix = "cp"
+
+  !> Copy command on Windows platforms
+  character(len=*), parameter :: default_copy_win = "copy"
+
+contains
+
+  !> Create a new instance of an installer
+  subroutine new_installer(self, prefix, bindir, libdir, includedir, verbosity, &
+          copy)
+    !> Instance of the installer
+    type(installer_t), intent(out) :: self
+    !> Path to installation directory
+    character(len=*), intent(in), optional :: prefix
+    !> Binary dir relative to the installation prefix
+    character(len=*), intent(in), optional :: bindir
+    !> Library directory relative to the installation prefix
+    character(len=*), intent(in), optional :: libdir
+    !> Include directory relative to the installation prefix
+    character(len=*), intent(in), optional :: includedir
+    !> Verbosity of the installer
+    integer, intent(in), optional :: verbosity
+    !> Copy command
+    character(len=*), intent(in), optional :: copy
+
+    self%os = get_os_type()
+
+    if (present(copy)) then
+      self%copy = copy
+    else
+      if (os_is_unix(self%os)) then
+        self%copy = default_copy_unix
+      else
+        self%copy = default_copy_win
+      end if
+    end if
+
+    if (present(includedir)) then
+      self%includedir = includedir
+    else
+      self%includedir = default_includedir
+    end if
+
+    if (present(prefix)) then
+      self%prefix = prefix
+    else
+      call set_default_prefix(self%prefix, self%os)
+    end if
+
+    if (present(bindir)) then
+      self%bindir = bindir
+    else
+      self%bindir = default_bindir
+    end if
+
+    if (present(libdir)) then
+      self%libdir = libdir
+    else
+      self%libdir = default_libdir
+    end if
+
+    if (present(verbosity)) then
+      self%verbosity = verbosity
+    else
+      self%verbosity = 1
+    end if
+
+  end subroutine new_installer
+
+  !> Set the default prefix for the installation
+  subroutine set_default_prefix(prefix, os)
+    !> Installation prefix
+    character(len=:), allocatable :: prefix
+    !> Platform identifier
+    integer, intent(in), optional :: os
+
+    character(len=:), allocatable :: home
+
+    if (os_is_unix(os)) then
+      call env_variable(home, "HOME")
+      if (allocated(home)) then
+        prefix = join_path(home, ".local")
+      else
+        prefix = default_prefix_unix
+      end if
+    else
+      call env_variable(home, "APPDATA")
+      if (allocated(home)) then
+        prefix = join_path(home, "local")
+      else
+        prefix = default_prefix_win
+      end if
+    end if
+
+  end subroutine set_default_prefix
+
+  !> Install an executable in its correct subdirectory
+  subroutine install_executable(self, executable, error)
+    !> Instance of the installer
+    class(installer_t), intent(inout) :: self
+    !> Path to the executable
+    character(len=*), intent(in) :: executable
+    !> Error handling
+    type(error_t), allocatable, intent(out) :: error
+    integer :: ll
+
+    if (.not.os_is_unix(self%os)) then
+        ll = len(executable)
+        if (executable(max(1, ll-3):ll) /= ".exe") then
+            call self%install(executable//".exe", self%bindir, error)
+            return
+        end if
+    end if
+
+    call self%install(executable, self%bindir, error)
+
+  end subroutine install_executable
+
+  !> Install a library in its correct subdirectory
+  subroutine install_library(self, library, error)
+    !> Instance of the installer
+    class(installer_t), intent(inout) :: self
+    !> Path to the library
+    character(len=*), intent(in) :: library
+    !> Error handling
+    type(error_t), allocatable, intent(out) :: error
+
+    call self%install(library, self%libdir, error)
+  end subroutine install_library
+
+  !> Install a header/module in its correct subdirectory
+  subroutine install_header(self, header, error)
+    !> Instance of the installer
+    class(installer_t), intent(inout) :: self
+    !> Path to the header
+    character(len=*), intent(in) :: header
+    !> Error handling
+    type(error_t), allocatable, intent(out) :: error
+
+    call self%install(header, self%includedir, error)
+  end subroutine install_header
+
+  !> Install a generic file into a subdirectory in the installation prefix
+  subroutine install(self, source, destination, error)
+    !> Instance of the installer
+    class(installer_t), intent(inout) :: self
+    !> Path to the original file
+    character(len=*), intent(in) :: source
+    !> Path to the destination inside the prefix
+    character(len=*), intent(in) :: destination
+    !> Error handling
+    type(error_t), allocatable, intent(out) :: error
+
+    character(len=:), allocatable :: install_dest
+
+    install_dest = join_path(self%prefix, destination)
+    if (os_is_unix(self%os)) then
+      install_dest = unix_path(install_dest)
+    else
+      install_dest = windows_path(install_dest)
+    end if
+    call self%make_dir(install_dest, error)
+    if (allocated(error)) return
+
+    if (self%verbosity > 0) then
+      if (exists(install_dest)) then
+        write(self%unit, '("# Update:", 1x, a, 1x, "->", 1x, a)') &
+          source, install_dest
+      else
+        write(self%unit, '("# Install:", 1x, a, 1x, "->", 1x, a)') &
+          source, install_dest
+      end if
+    end if
+
+    call self%run(self%copy//' "'//source//'" "'//install_dest//'"', error)
+    if (allocated(error)) return
+
+  end subroutine install
+
+  !> Create a new directory in the prefix
+  subroutine make_dir(self, dir, error)
+    !> Instance of the installer
+    class(installer_t), intent(inout) :: self
+    !> Directory to be created
+    character(len=*), intent(in) :: dir
+    !> Error handling
+    type(error_t), allocatable, intent(out) :: error
+
+    if (.not.exists(dir)) then
+       if (self%verbosity > 1) then
+          write(self%unit, '("# Dir:", 1x, a)') dir
+       end if
+       call mkdir(dir)
+    end if
+  end subroutine make_dir
+
+  !> Run an installation command
+  subroutine run(self, command, error)
+    !> Instance of the installer
+    class(installer_t), intent(inout) :: self
+    !> Command to be launched
+    character(len=*), intent(in) :: command
+    !> Error handling
+    type(error_t), allocatable, intent(out) :: error
+    integer :: stat
+
+    if (self%verbosity > 1) then
+      write(self%unit, '("# Run:", 1x, a)') command
+    end if
+    call execute_command_line(command, exitstat=stat)
+
+    if (stat /= 0) then
+      call fatal_error(error, "Failed in command: '"//command//"'")
+      return
+    end if
+  end subroutine run
+
+end module fpm_installer
  
  
 !>>>>> build/dependencies/toml-f/src/tomlf/utils/convert.f90
@@ -9195,218 +11113,6 @@ end subroutine toml_normalize_string
 
 
 end module tomlf_utils_convert
- 
- 
-!>>>>> ././src/fpm/cmd/new.f90
-module fpm_cmd_new
-
-use fpm_command_line, only : fpm_new_settings
-use fpm_environment, only : run, OS_LINUX, OS_MACOS, OS_WINDOWS
-use fpm_filesystem, only : join_path, exists, basename, mkdir, is_dir
-use,intrinsic :: iso_fortran_env, only : stderr=>error_unit
-implicit none
-private
-public :: cmd_new
-
-contains
-
-subroutine cmd_new(settings)
-type(fpm_new_settings), intent(in) :: settings
-character(len=:),allocatable :: bname          ! baeename of NAME
-character(len=:),allocatable :: message(:)
-character(len=:),allocatable :: littlefile(:)
-character(len=8)             :: date
-
-    call date_and_time(DATE=date)
-
-    if(exists(settings%name) .and. .not.settings%backfill )then
-        write(stderr,'(*(g0,1x))')&
-        & 'ERROR: ',settings%name,'already exists.'
-        write(stderr,'(*(g0,1x))')&
-        & '        perhaps you wanted to add --backfill ?'
-        return
-    elseif(is_dir(settings%name) .and. settings%backfill )then
-        write(*,'(*(g0))')'backfilling ',settings%name
-    elseif(exists(settings%name) )then
-        write(stderr,'(*(g0,1x))')&
-        & 'ERROR: ',settings%name,'already exists and is not a directory.'
-        return
-    else
-        ! make new directory
-        call mkdir(settings%name)
-    endif
-
-    ! change to new directory as a test. System dependent potentially
-    call run('cd '//settings%name)
-    ! NOTE: need some system routines to handle filenames like "."
-    ! like realpath() or getcwd().
-    bname=basename(settings%name)
-
-    ! create NAME/.gitignore file
-    call warnwrite(join_path(settings%name, '.gitignore'), ['build/*'])
-
-    littlefile=[character(len=80) :: '# '//bname, 'My cool new project!']
-
-    ! create NAME/README.md
-    call warnwrite(join_path(settings%name, 'README.md'), littlefile)
-
-    ! start building NAME/fpm.toml
-    message=[character(len=80) ::                 &
-    &'name = "'//bname//'"                     ', &
-    &'version = "0.1.0"                        ', &
-    &'license = "license"                      ', &
-    &'author = "Jane Doe"                      ', &
-    &'maintainer = "jane.doe@example.com"      ', &
-    &'copyright = "'//date(1:4)//' Jane Doe"   ', &
-    &'                                         ', &
-    &'']
-
-    if(settings%with_lib)then
-        call mkdir(join_path(settings%name,'src') )
-        ! create next section of fpm.toml
-        message=[character(len=80) ::  message,   &
-        &'[library]                            ', &
-        &'source-dir="src"                     ', &
-        &'']
-        ! create placeholder module src/bname.f90
-        littlefile=[character(len=80) ::          &
-        &'module '//bname,                        &
-        &'  implicit none',                       &
-        &'  private',                             &
-        &'',                                      &
-        &'  public :: say_hello',                 &
-        &'contains',                              &
-        &'  subroutine say_hello',                &
-        &'    print *, "Hello, '//bname//'!"',    &
-        &'  end subroutine say_hello',            &
-        &'end module '//bname]
-        ! create NAME/src/NAME.f90
-        call warnwrite(join_path(settings%name, 'src', bname//'.f90'),&
-         & littlefile)
-    endif
-
-    if(settings%with_test)then
-
-       ! create NAME/test or stop
-       call mkdir(join_path(settings%name, 'test'))
-        ! create next section of fpm.toml
-        message=[character(len=80) ::  message,   &
-        &'[[test]]                             ', &
-        &'name="runTests"                      ', &
-        &'source-dir="test"                    ', &
-        &'main="main.f90"                      ', &
-        &'']
-
-        littlefile=[character(len=80) ::       &
-        &'program main',                       &
-        &'implicit none',                      &
-        &'',                                   &
-        &'print *, "Put some tests in here!"', &
-        &'end program main']
-        ! create NAME/test/main.f90
-        call warnwrite(join_path(settings%name, 'test/main.f90'), littlefile)
-    endif
-
-    if(settings%with_executable)then
-        ! create next section of fpm.toml
-        call mkdir(join_path(settings%name, 'app'))
-        ! create NAME/app or stop
-        message=[character(len=80) ::  message,   &
-        &'[[executable]]                       ', &
-        &'name="'//bname//'"                   ', &
-        &'source-dir="app"                     ', &
-        &'main="main.f90"                      ', &
-        &'']
-
-        if(exists(bname//'/src/'))then
-            littlefile=[character(len=80) ::          &
-            &'program main',                          &
-            &'  use '//bname//', only: say_hello',    &
-            &'  implicit none',                       &
-            &'',                                      &
-            &'  call say_hello()',                    &
-            &'end program main']
-        else
-            littlefile=[character(len=80) ::                 &
-            &'program main',                                 &
-            &'  implicit none',                              &
-            &'',                                             &
-            &'  print *, "hello from project '//bname//'"',  &
-            &'end program main']
-        endif
-        call warnwrite(join_path(settings%name, 'app/main.f90'), littlefile)
-    endif
-
-    ! now that built it write NAME/fpm.toml
-    call warnwrite(join_path(settings%name, 'fpm.toml'), message)
-    ! assumes git(1) is installed and in path
-    call run('git init ' // settings%name)
-contains
-
-subroutine warnwrite(fname,data)
-character(len=*),intent(in) :: fname
-character(len=*),intent(in) :: data(:)
-
-    if(.not.exists(fname))then
-        call filewrite(fname,data)
-    else
-        write(stderr,'(*(g0,1x))')'INFO:   ',fname,&
-        & 'already exists. Not overwriting'
-    endif
-
-end subroutine warnwrite
-
-subroutine filewrite(filename,filedata)
-! procedure to write filedata to file filename
-use,intrinsic :: iso_fortran_env, only : &
- & stdin=>input_unit, stdout=>output_unit, stderr=>error_unit
-
-character(len=*),intent(in)           :: filename
-character(len=*),intent(in)           :: filedata(:)
-integer                               :: lun, i, ios
-character(len=256)                    :: message
-
-    message=' '
-    ios=0
-    if(filename.ne.' ')then
-        open(file=filename, &
-        & newunit=lun, &
-        & form='formatted', &    ! FORM    = FORMATTED | UNFORMATTED
-        & access='sequential', & ! ACCESS  = SEQUENTIAL| DIRECT | STREAM
-        & action='write', &      ! ACTION  = READ|WRITE| READWRITE
-        & position='rewind', &   ! POSITION= ASIS      | REWIND | APPEND
-        & status='new', &        ! STATUS  = NEW| REPLACE| OLD| SCRATCH| UNKNOWN
-        & iostat=ios, &
-        & iomsg=message)
-    else
-        lun=stdout
-        ios=0
-    endif
-    if(ios.ne.0)then
-        write(stderr,'(*(a:,1x))')&
-        & '*filewrite* error:',filename,trim(message)
-        error stop 1
-    endif
-    ! write file
-    do i=1,size(filedata)
-        write(lun,'(a)',iostat=ios,iomsg=message)trim(filedata(i))
-        if(ios.ne.0)then
-            write(stderr,'(*(a:,1x))')&
-            & '*filewrite* error:',filename,trim(message)
-            error stop 4
-        endif
-    enddo
-    ! close file
-    close(unit=lun,iostat=ios,iomsg=message)
-    if(ios.ne.0)then
-        write(stderr,'(*(a:,1x))')'*filewrite* error:',trim(message)
-        error stop 2
-    endif
-end subroutine filewrite
-
-end subroutine cmd_new
-
-end module fpm_cmd_new
  
  
 !>>>>> build/dependencies/toml-f/src/tomlf/utils.f90
@@ -15448,6 +17154,117 @@ contains
 end module fpm_manifest_dependency
  
  
+!>>>>> ././src/fpm/manifest/install.f90
+!> Implementation of the installation configuration.
+!>
+!> An install table can currently have the following fields
+!>
+!>```toml
+!>library = bool
+!>```
+module fpm_manifest_install
+  use fpm_error, only : error_t, fatal_error, syntax_error
+  use fpm_toml, only : toml_table, toml_key, toml_stat, get_value
+  implicit none
+  private
+
+  public :: install_config_t, new_install_config
+
+  !> Configuration data for installation
+  type :: install_config_t
+
+    !> Install library with this project
+    logical :: library
+
+  contains
+
+    !> Print information on this instance
+    procedure :: info
+
+  end type install_config_t
+
+contains
+
+  !> Create a new installation configuration from a TOML data structure
+  subroutine new_install_config(self, table, error)
+
+    !> Instance of the install configuration
+    type(install_config_t), intent(out) :: self
+
+    !> Instance of the TOML data structure
+    type(toml_table), intent(inout) :: table
+
+    !> Error handling
+    type(error_t), allocatable, intent(out) :: error
+
+    call check(table, error)
+    if (allocated(error)) return
+
+    call get_value(table, "library", self%library, .false.)
+
+  end subroutine new_install_config
+
+
+  !> Check local schema for allowed entries
+  subroutine check(table, error)
+
+    !> Instance of the TOML data structure
+    type(toml_table), intent(inout) :: table
+
+    !> Error handling
+    type(error_t), allocatable, intent(out) :: error
+
+    type(toml_key), allocatable :: list(:)
+    integer :: ikey
+
+    call table%get_keys(list)
+    if (size(list) < 1) return
+
+    do ikey = 1, size(list)
+      select case(list(ikey)%key)
+      case default
+        call syntax_error(error, "Key "//list(ikey)%key//" is not allowed in install table")
+        exit
+      case("library")
+        continue
+      end select
+    end do
+    if (allocated(error)) return
+
+  end subroutine check
+
+  !> Write information on install configuration instance
+  subroutine info(self, unit, verbosity)
+
+    !> Instance of the build configuration
+    class(install_config_t), intent(in) :: self
+
+    !> Unit for IO
+    integer, intent(in) :: unit
+
+    !> Verbosity of the printout
+    integer, intent(in), optional :: verbosity
+
+    integer :: pr
+    character(len=*), parameter :: fmt = '("#", 1x, a, t30, a)'
+
+    if (present(verbosity)) then
+      pr = verbosity
+    else
+      pr = 1
+    end if
+
+    if (pr < 1) return
+
+    write(unit, fmt) "Install configuration"
+    write(unit, fmt) " - library install", &
+      & trim(merge("enabled ", "disabled", self%library))
+
+  end subroutine info
+
+end module fpm_manifest_install
+ 
+ 
 !>>>>> ././src/fpm/manifest/library.f90
 !> Implementation of the meta data for libraries.
 !>
@@ -16149,6 +17966,8 @@ end module fpm_manifest_test
 !>[library]
 !>[dependencies]
 !>[dev-dependencies]
+!>[build]
+!>[install]
 !>[[ executable ]]
 !>[[ example ]]
 !>[[ test ]]
@@ -16159,6 +17978,7 @@ module fpm_manifest_package
     use fpm_manifest_example, only : example_config_t, new_example
     use fpm_manifest_executable, only : executable_config_t, new_executable
     use fpm_manifest_library, only : library_config_t, new_library
+    use fpm_manifest_install, only: install_config_t, new_install_config
     use fpm_manifest_test, only : test_config_t, new_test
     use fpm_error, only : error_t, fatal_error, syntax_error
     use fpm_toml, only : toml_table, toml_array, toml_key, toml_stat, get_value, &
@@ -16182,11 +18002,14 @@ module fpm_manifest_package
         !> Name of the package
         character(len=:), allocatable :: name
 
+        !> Package version
+        type(version_t) :: version
+
         !> Build configuration data
         type(build_config_t) :: build
 
-        !> Package version
-        type(version_t) :: version
+        !> Installation configuration data
+        type(install_config_t) :: install
 
         !> Library meta data
         type(library_config_t), allocatable :: library
@@ -16264,12 +18087,18 @@ contains
             return
         end if
         call new_build_config(self%build, child, error)
+        if (allocated(error)) return
 
+        call get_value(table, "install", child, requested=.true., stat=stat)
+        if (stat /= toml_stat%success) then
+            call fatal_error(error, "Type mismatch for install entry, must be a table")
+            return
+        end if
+        call new_install_config(self%install, child, error)
         if (allocated(error)) return
         
         call get_value(table, "version", version, "0")
         call new_version(self%version, version, error)
-        
         if (allocated(error)) return
 
         call get_value(table, "dependencies", child, requested=.false.)
@@ -16390,7 +18219,7 @@ contains
             case("version", "license", "author", "maintainer", "copyright", &
                     & "description", "keywords", "categories", "homepage", "build", &
                     & "dependencies", "dev-dependencies", "test", "executable", &
-                    & "example", "library")
+                    & "example", "library", "install")
                 continue
 
             end select
@@ -16434,6 +18263,8 @@ contains
         end if
 
         call self%build%info(unit, pr - 1)
+
+        call self%install%info(unit, pr - 1)
 
         if (allocated(self%library)) then
             write(unit, fmt) "- target", "archive"
@@ -16703,7 +18534,7 @@ contains
 
         ! Populate example in case we find the default example directory
         if (.not.allocated(package%example) .and. &
-            exists(join_path("example","main.f90"))) then
+            & exists(join_path(root, "example", "main.f90"))) then
             allocate(package%example(1))
             call default_example(package%example(1), package%name)
         endif
@@ -16727,6 +18558,661 @@ contains
 
 
 end module fpm_manifest
+ 
+ 
+!>>>>> ././src/fpm/cmd/new.f90
+module fpm_cmd_new
+!># Definition of the "new" subcommand
+!>
+!> A type of the general command base class [[fpm_cmd_settings]]
+!> was created for the "new" subcommand ==> type [[fpm_new_settings]].
+!> This procedure read the values that were set on the command line
+!> from this type to decide what actions to take.
+!>
+!> It is virtually self-contained and so independant of the rest of the
+!> application that it could function as a separate program.
+!>
+!> The "new" subcommand options currently consist of a SINGLE top
+!> directory name to create that must have a name that is an
+!> allowable Fortran variable name. That should have been ensured
+!> by the command line processing before this procedure is called.
+!> So basically this routine has already had the options vetted and
+!> just needs to conditionally create a few files.
+!>
+!> As described in the documentation it will selectively
+!> create the subdirectories app/, test/, src/, and example/
+!> and populate them with sample files.
+!>
+!> It also needs to create an initial manifest file "fpm.toml".
+!>
+!> It then calls the system command "git init".
+!>
+!> It should test for file existence and not overwrite existing
+!> files and inform the user if there were conflicts.
+!>
+!> Any changes should be reflected in the documentation in
+!> [[fpm_command_line.f90]]
+!>
+!> FUTURE
+!> A filename like "." would need system commands or a standard routine
+!> like realpath(3c) to process properly.
+!>
+!> Perhaps allow more than one name on a single command. It is an arbitrary
+!> restriction based on a concensus preference, not a required limitation.
+!>
+!> Initially the name of the directory is used as the module name in the
+!> src file so it must be an allowable Fortran variable name. If there are
+!> complaints about it it might be changed. Handling unicode at this point
+!> might be problematic as not all current compilers handle it. Other
+!> utilities like content trackers (ie. git) or repositories like github
+!> might also have issues with alternative names or names with spaces, etc.
+!> So for the time being it seems prudent to encourage simple ASCII top directory
+!> names (similiar to the primary programming language Fortran itself).
+!>
+!> Should be able to create or pull more complicated initial examples
+!> based on various templates. It should place or mention other relevant
+!> documents such as a description of the manifest file format in user hands;
+!> or how to access registered packages and local packages,
+!> although some other command might provide that (and the help command should
+!> be the first go-to for a CLI utility).
+
+use fpm_command_line, only : fpm_new_settings
+use fpm_environment, only : run, OS_LINUX, OS_MACOS, OS_WINDOWS
+use fpm_filesystem, only : join_path, exists, basename, mkdir, is_dir, to_fortran_name
+use fpm_filesystem, only : fileopen, fileclose, filewrite, warnwrite
+use fpm_strings, only : join
+use,intrinsic :: iso_fortran_env, only : stderr=>error_unit
+implicit none
+private
+public :: cmd_new
+
+contains
+
+subroutine cmd_new(settings)
+type(fpm_new_settings), intent(in) :: settings
+integer,parameter            :: tfc = selected_char_kind('DEFAULT')
+character(len=:,kind=tfc),allocatable :: bname          ! baeename of NAME
+character(len=:,kind=tfc),allocatable :: tomlfile(:)
+character(len=:,kind=tfc),allocatable :: littlefile(:)
+
+    !> TOP DIRECTORY NAME PROCESSING
+    !> see if requested new directory already exists and process appropriately
+    if(exists(settings%name) .and. .not.settings%backfill )then
+        write(stderr,'(*(g0,1x))')&
+        & '<ERROR>',settings%name,'already exists.'
+        write(stderr,'(*(g0,1x))')&
+        & '        perhaps you wanted to add --backfill ?'
+        return
+    elseif(is_dir(settings%name) .and. settings%backfill )then
+        write(*,'(*(g0))')'backfilling ',settings%name
+    elseif(exists(settings%name) )then
+        write(stderr,'(*(g0,1x))')&
+        & '<ERROR>',settings%name,'already exists and is not a directory.'
+        return
+    else
+        ! make new directory
+        call mkdir(settings%name)
+    endif
+
+    !> temporarily change to new directory as a test. NB: System dependent
+    call run('cd '//settings%name)
+    ! NOTE: need some system routines to handle filenames like "."
+    ! like realpath() or getcwd().
+    bname=basename(settings%name)
+
+    ! create NAME/.gitignore file
+    call warnwrite(join_path(settings%name, '.gitignore'), ['build/*'])
+
+    littlefile=[character(len=80) :: '# '//bname, 'My cool new project!']
+
+    ! create NAME/README.md
+    call warnwrite(join_path(settings%name, 'README.md'), littlefile)
+
+    ! start building NAME/fpm.toml
+    if(settings%with_full)then
+        tomlfile=[character(len=80) :: &
+        &'  # This is your fpm(Fortran Package Manager) manifest file                     ',&
+        &'  # ("fpm.toml"). It is heavily annotated to help guide you though              ',&
+        &'  # customizing a package build, although the defaults are sufficient           ',&
+        &'  # for many basic packages.                                                    ',&
+        &'  #                                                                             ',&
+        &'  # The manifest file is not only used to provide metadata identifying          ',&
+        &'  # your project (so it can be used by others as a dependency). It can          ',&
+        &'  # specify where your library and program sources live, what the name          ',&
+        &'  # of the executable(s) will be, what files to build, dependencies on          ',&
+        &'  # other fpm packages, and what external libraries are required.               ',&
+        &'  #                                                                             ',&
+        &'  # The manifest format must conform to the TOML configuration file             ',&
+        &'  # standard.                                                                   ',&
+        &'  #                                                                             ',&
+        &'  # TOML files support flexible use of white-space and commenting of the        ',&
+        &'  # configuration data, but for clarity in this sample active directives        ',&
+        &'  # begin in column one. Inactive example directives are commented              ',&
+        &'  # out with a pound character ("#") but begin in column one as well.           ',&
+        &'  # Commentary begins with a pound character in column three.                   ',&
+        &'  #                                                                             ',&
+        &'  # This file draws heavily upon the following references:                      ',&
+        &'  #                                                                             ',&
+        &'  # The fpm home page at                                                        ',&
+        &'  #     https://github.com/fortran-lang/fpm                                     ',&
+        &'  # A complete list of keys and their attributes at                             ',&
+        &'  #     https://github.com/fortran-lang/fpm/blob/master/manifest-reference.md   ',&
+        &'  # examples of fpm project packaging at                                        ',&
+        &'  #     https://github.com/fortran-lang/fpm/blob/master/PACKAGING.md            ',&
+        &'  # The Fortran TOML file interface and it''s references at                     ',&
+        &'  #     https://github.com/toml-f/toml-f                                        ',&
+        &'  #                                                                             ',&
+        &'  #-----------------------                                                      ',&
+        &'  # project Identification                                                      ',&
+        &'  #-----------------------                                                      ',&
+        &'  # We begin with project metadata at the manifest root. This data is designed  ',&
+        &'  # to aid others when searching for the project in a repository and to         ',&
+        &'  # identify how and when to contact the package supporters.                    ',&
+        &'                                                                                ',&
+        &'name = "'//bname//'"',&
+        &'  # The project name (required) is how the project will be referred to.         ',&
+        &'  # The name is used by other packages using it as a dependency. It also        ',&
+        &'  # is used as the default name of any library built and the optional           ',&
+        &'  # default executable built from app/main.f90. It must conform to the rules    ',&
+        &'  # for a Fortran variable name.                                                ',&
+        &'                                                                                ',&
+        &'version = "0.1.0"                                                               ',&
+        &'  # The project version number is a string. A recommended scheme for            ',&
+        &'  # specifying versions is the Semantic Versioning scheme.                      ',&
+        &'                                                                                ',&
+        &'license = "license"                                                             ',&
+        &'  # Licensing information specified using SPDX identifiers is preferred         ',&
+        &'  # (eg. "Apache-2.0 OR MIT" or "LGPL-3.0-or-later").                           ',&
+        &'                                                                                ',&
+        &'maintainer = "jane.doe@example.com"                                             ',&
+        &'  # Information on the project maintainer and means to reach out to them.       ',&
+        &'                                                                                ',&
+        &'author = "Jane Doe"                                                             ',&
+        &'  # Information on the project author.                                          ',&
+        &'                                                                                ',&
+        &'copyright = "Copyright 2020 Jane Doe"                                           ',&
+        &'  # A statement clarifying the Copyright status of the project.                 ',&
+        &'                                                                                ',&
+        &'#description = "A short project summary in plain text"                          ',&
+        &'  # The description provides a short summary on the project. It should be       ',&
+        &'  # plain text and not use any markup formatting.                               ',&
+        &'                                                                                ',&
+        &'#categories = ["fortran", "graphics"]                                           ',&
+        &'  # Categories associated with the project. Listing only one is preferred.      ',&
+        &'                                                                                ',&
+        &'#keywords = ["hdf5", "mpi"]                                                     ',&
+        &'  # The keywords field is an array of strings describing the project.           ',&
+        &'                                                                                ',&
+        &'#homepage = "https://stdlib.fortran-lang.org"                                   ',&
+        &'  # URL to the webpage of the project.                                          ',&
+        &'                                                                                ',&
+        &'  # -----------------------------------------                                   ',&
+        &'  # We are done with identifying the project.                                   ',&
+        &'  # -----------------------------------------                                   ',&
+        &'  #                                                                             ',&
+        &'  # Now lets start describing how the project should be built.                  ',&
+        &'  #                                                                             ',&
+        &'  # Note tables would go here but we will not be talking about them (much)!!'    ,&
+        &'  #                                                                             ',&
+        &'  # Tables are a way to explicitly specify large numbers of programs in         ',&
+        &'  # a compact format instead of individual per-program entries in the           ',&
+        &'  # [[executable]], [[test]], and [[example]] sections to follow but            ',&
+        &'  # will not be discussed further except for the following notes:               ',&
+        &'  #                                                                             ',&
+        &'  # + Tables must appear (here) before any sections are declared. Once a        ',&
+        &'  #   section is specified in a TOML file everything afterwards must be         ',&
+        &'  #   values for that section or the beginning of a new section. A simple       ',&
+        &'  #   example looks like:                                                       ',&
+        &'                                                                                ',&
+        &'#executable = [                                                                 ',&
+        &'#  { name = "a-prog" },                                                         ',&
+        &'#  { name = "app-tool", source-dir = "tool" },                                  ',&
+        &'#  { name = "fpm-man", source-dir = "tool", main="fman.f90" }                   ',&
+        &'#]                                                                              ',&
+        &'                                                                                ',&
+        &'  # This would be in lieue of the [[executable]] section found later in this    ',&
+        &'  # configuration file.                                                         ',&
+        &'  # + See the reference documents (at the beginning of this document)           ',&
+        &'  #   for more information on tables if you have long lists of programs         ',&
+        &'  #   to build and are not simply depending on auto-detection.                  ',&
+        &'  #                                                                             ',&
+        &'  # Now lets begin the TOML sections (lines beginning with "[") ...             ',&
+        &'  #                                                                             ',&
+        &'                                                                                ',&
+        &'[install] # Options for the "install" subcommand                                ',&
+        &'                                                                                ',&
+        &'  # When you run the "install" subcommand only executables are installed by     ',&
+        &'  # default on the local system. Library projects that will be used outside of  ',&
+        &'  # "fpm" can set the "library" boolean to also allow installing the module     ',&
+        &'  # files and library archive. Without this being set to "true" an "install"    ',&
+        &'  # subcommand ignores parameters that specify library installation.            ',&
+        &'                                                                                ',&
+        &'library = false                                                                 ',&
+        &'                                                                                ',&
+        &'[build] # General Build Options                                                 ',&
+        &'                                                                                ',&
+        &'  ###  Automatic target discovery                                               ',&
+        &'  #                                                                             ',&
+        &'  # Normally fpm recursively searches the app/, example/, and test/ directories ',&
+        &'  # for program sources and builds them. To disable this automatic discovery of ',&
+        &'  # program targets set the following to "false":                               ',&
+        &'                                                                                ',&
+        &'#auto-executables = true                                                        ',&
+        &'#auto-examples = true                                                           ',&
+        &'#auto-tests = true                                                              ',&
+        &'                                                                                ',&
+        &'  ### Package-level External Library Links                                      ',&
+        &'  #                                                                             ',&
+        &'  # To declare link-time dependencies on external libraries a list of           ',&
+        &'  # native libraries can be specified with the "link" entry. You may            ',&
+        &'  # have one library name or a list of strings in case several                  ',&
+        &'  # libraries should be linked. This list of library dependencies is            ',&
+        &'  # exported to dependent packages. You may have to alter your library          ',&
+        &'  # search-path to ensure the libraries can be accessed. Typically,             ',&
+        &'  # this is done with the LD_LIBRARY_PATH environment variable on ULS           ',&
+        &'  # (Unix-Like Systems). You only specify the core name of the library          ',&
+        &'  # (as is typical with most programming environments, where you                ',&
+        &'  # would specify "-lz" on your load command to link against the zlib           ',&
+        &'  # compression library even though the library file would typically be         ',&
+        &'  # a file called "libz.a" "or libz.so"). So to link against that library       ',&
+        &'  # you would specify:                                                          ',&
+        &'                                                                                ',&
+        &'#link = "z"                                                                     ',&
+        &'                                                                                ',&
+        &'  # Note that in some cases the order of the libraries matters:                 ',&
+        &'                                                                                ',&
+        &'#link = ["blas", "lapack"]                                                      ',&
+        &'']
+    endif
+
+    if(settings%with_bare)then
+    elseif(settings%with_lib)then
+        call mkdir(join_path(settings%name,'src') )
+        ! create next section of fpm.toml
+        if(settings%with_full)then
+            tomlfile=[character(len=80) ::  tomlfile, &
+            &'[library]                                                                       ',&
+            &'                                                                                ',&
+            &'  # You can change the name of the directory to search for your library         ',&
+            &'  # source from the default of "src/". Library targets are exported             ',&
+            &'  # and usable by other projects.                                               ',&
+            &'                                                                                ',&
+            &'source-dir="src"                                                                ',&
+            &'                                                                                ',&
+            &'  # this can be a list:                                                         ',&
+            &'                                                                                ',&
+            &'#source-dir=["src", "src2"]                                                     ',&
+            &'                                                                                ',&
+            &'  # More complex libraries may organize their modules in subdirectories.        ',&
+            &'  # For modules in a top-level directory fpm requires (but does not             ',&
+            &'  # enforce) that:                                                              ',&
+            &'  #                                                                             ',&
+            &'  #  + The module has the same name as the source file. This is important.      ',&
+            &'  #  + There should be only one module per file.                                ',&
+            &'  #                                                                             ',&
+            &'  # These two requirements simplify the build process for fpm. As Fortran       ',&
+            &'  # compilers emit module files (.mod) with the same name as the module         ',&
+            &'  # itself (but not the source file, .f90), naming the module the same          ',&
+            &'  # as the source file allows fpm to:                                           ',&
+            &'  #                                                                             ',&
+            &'  #  + Uniquely and exactly map a source file (.f90) to its object (.o)         ',&
+            &'  #    and module (.mod) files.                                                 ',&
+            &'  #  + Avoid conflicts with modules of the same name that could appear          ',&
+            &'  #    in dependency packages.                                                  ',&
+            &'  #                                                                             ',&
+            &'  ### Multi-level library source                                                ',&
+            &'  # You can place your module source files in any number of levels of           ',&
+            &'  # subdirectories inside your source directory, but there are certain naming   ',&
+            &'  # conventions to be followed -- module names must contain the path components ',&
+            &'  # of the directory that its source file is in.                                ',&
+            &'  #                                                                             ',&
+            &'  # This rule applies generally to any number of nested directories and         ',&
+            &'  # modules. For example, src/a/b/c/d.f90 must define a module called a_b_c_d.  ',&
+            &'  # Again, this is not enforced but may be required in future releases.         ',&
+            &'']
+        endif
+        ! create placeholder module src/bname.f90
+        littlefile=[character(len=80) ::          &
+        &'module '//to_fortran_name(bname),       &
+        &'  implicit none',                       &
+        &'  private',                             &
+        &'',                                      &
+        &'  public :: say_hello',                 &
+        &'contains',                              &
+        &'  subroutine say_hello',                &
+        &'    print *, "Hello, '//bname//'!"',    &
+        &'  end subroutine say_hello',            &
+        &'end module '//to_fortran_name(bname)]
+        ! create NAME/src/NAME.f90
+        call warnwrite(join_path(settings%name, 'src', bname//'.f90'),&
+         & littlefile)
+    endif
+
+    if(settings%with_full)then
+        tomlfile=[character(len=80) ::  tomlfile ,&
+        &'[dependencies]                                                                  ',&
+        &'                                                                                ',&
+        &'  # Inevitably, you will want to be able to include other packages in           ',&
+        &'  # a project. Fpm makes this incredibly simple, by taking care of              ',&
+        &'  # fetching and compiling your dependencies for you. You just tell it          ',&
+        &'  # what your dependencies names are, and where to find them.                   ',&
+        &'  #                                                                             ',&
+        &'  # If you are going to distribute your package only place dependencies         ',&
+        &'  # here someone using your package as a remote dependency needs built.         ',&
+        &'  # You can define dependencies just for developer executables in the           ',&
+        &'  # next section, or even for specific executables as we will see below         ',&
+        &'  # (Then fpm will still fetch and compile it when building your                ',&
+        &'  # developer executables, but users of your library will not have to).         ',&
+        &'  #                                                                             ',&
+        &'  ## GLOBAL DEPENDENCIES (exported with your project)                           ',&
+        &'  #                                                                             ',&
+        &'  # Typically, dependencies are defined by specifying the project''s            ',&
+        &'  # git repository.                                                             ',&
+        &'  #                                                                             ',&
+        &'  # You can be specific about which version of a dependency you would           ',&
+        &'  # like. By default the latest master master branch is used. You can           ',&
+        &'  # optionally specify a branch, a tag or a commit value.                       ',&
+        &'  #                                                                             ',&
+        &'  # So here are several alternates for specifying a remote dependency (you      ',&
+        &'  # can have at most one of "branch", "rev" or "tag" present):                  ',&
+        &'                                                                                ',&
+        &'#stdlib = { git = "https://github.com/LKedward/stdlib-fpm.git" }                ',&
+        &'#stdlib = {git="https://github.com/LKedward/stdlib-fpm.git",branch = "master" },',&
+        &'#stdlib = {git="https://github.com/LKedward/stdlib-fpm.git", tag = "v0.1.0" },  ',&
+        &'#stdlib = {git="https://github.com/LKedward/stdlib-fpm.git", rev = "5a9b7a8" }. ',&
+        &'                                                                                ',&
+        &'  # There may be multiple packages listed:                                      ',&
+        &'                                                                                ',&
+        &'#M_strings = { git = "https://github.com/urbanjost/M_strings.git" }             ',&
+        &'#M_time    = { git = "https://github.com/urbanjost/M_time.git" }                ',&
+        &'                                                                                ',&
+        &'  #                                                                             ',&
+        &'  # You can even specify the local path to another project if it is in          ',&
+        &'  # a sub-folder (If for example you have got another fpm package **in          ',&
+        &'  # the same repository**) like this:                                           ',&
+        &'                                                                                ',&
+        &'#M_strings = { path = "M_strings" }                                             ',&
+        &'                                                                                ',&
+        &'  #  If you specify paths outside of your repository (ie. paths with a          ',&
+        &'  #  slash in them) things will not work for your users!                        ',&
+        &'  #                                                                             ',&
+        &'  # For a more verbose layout use normal tables rather than inline tables       ',&
+        &'  # to specify dependencies:                                                    ',&
+        &'                                                                                ',&
+        &'#[dependencies.toml-f]                                                          ',&
+        &'#git = "https://github.com/toml-f/toml-f"                                       ',&
+        &'#rev = "2f5eaba864ff630ba0c3791126a3f811b6e437f3"                               ',&
+        &'                                                                                ',&
+        &'  # Now you can use any modules from these libraries anywhere in your           ',&
+        &'  # code -- whether is in your library source or a program source.              ',&
+        &'                                                                                ',&
+        &'[dev-dependencies]                                                              ',&
+        &'                                                                                ',&
+        &'  ## Dependencies Only for Development                                          ',&
+        &'  #                                                                             ',&
+        &'  # You can specify dependencies your library or application does not           ',&
+        &'  # depend on in a similar way. The difference is that these will not           ',&
+        &'  # be exported as part of your project to those using it as a remote           ',&
+        &'  # dependency.                                                                 ',&
+        &'  #                                                                             ',&
+        &'  # Currently, like a global dependency it will still be available for          ',&
+        &'  # all codes. It is up to the developer to ensure that nothing except          ',&
+        &'  # developer test programs rely upon it.                                       ',&
+        &'                                                                                ',&
+        &'#M_msg    = { git = "https://github.com/urbanjost/M_msg.git" }                  ',&
+        &'#M_verify = { git = "https://github.com/urbanjost/M_verify.git" }               ',&
+        &'']
+    endif
+    if(settings%with_bare)then
+    elseif(settings%with_executable)then
+        ! create next section of fpm.toml
+        call mkdir(join_path(settings%name, 'app'))
+        ! create NAME/app or stop
+        if(settings%with_full)then
+           tomlfile=[character(len=80) ::  tomlfile, &
+           &'  #-----------------------------------                                          ',&
+           &'  ## Application-specific declarations                                          ',&
+           &'  #-----------------------------------                                          ',&
+           &'  # Now lets begin entries for the TOML tables (lines beginning with "[[")      ',&
+           &'  # that describe the program sources -- applications, tests, and examples.     ',&
+           &'  #                                                                             ',&
+           &'  # First we will configuration individual applications run with "fpm run".     ',&
+           &'  #                                                                             ',&
+           &'  #   + the "name" entry for the executable to be built must always             ',&
+           &'  #     be specified. The name must satisfy the rules for a Fortran             ',&
+           &'  #     variable name. This will be the name of the binary installed by         ',&
+           &'  #     the "install" subcommand and used on the "run" subcommand.              ',&
+           &'  #   + The source directory for each executable can be adjusted by the         ',&
+           &'  #     "source-dir" entry.                                                     ',&
+           &'  #   + The basename of the source file containing the program body can         ',&
+           &'  #     be specified with the "main" entry.                                     ',&
+           &'  #   + Executables can also specify their own external package and             ',&
+           &'  #     library link dependencies.                                              ',&
+           &'  #                                                                             ',&
+           &'  #     Currently, like a global dependency any external package dependency     ',&
+           &'  #     will be available for all codes. It is up to the developer to ensure    ',&
+           &'  #     that nothing except the application programs specified rely upon it.    ',&
+           &'  #                                                                             ',&
+           &'  # Note if your application needs to use a module internally, but you do not   ',&
+           &'  # intend to build it as a library to be used in other projects, you can       ',&
+           &'  # include the module in your program source file or directory as well.        ',&
+           &'                                                                                ',&
+           &'[[executable]]                                                                  ',&
+           &'name="'//bname//'"',&
+           &'source-dir="app"                                                                ',&
+           &'main="main.f90"                                                                 ',&
+           &'                                                                                ',&
+           &'  # You may repeat this pattern to define additional applications. For instance,',&
+           &'  # the following sample illustrates all accepted options, where "link" and     ',&
+           &'  # "executable.dependencies" keys are the same as the global external library  ',&
+           &'  # links and package dependencies described previously except they apply       ',&
+           &'  # only to this executable:                                                    ',&
+           &'                                                                                ',&
+           &'#[[ executable ]]                                                               ',&
+           &'#name = "app-name"                                                              ',&
+           &'#source-dir = "prog"                                                            ',&
+           &'#main = "program.f90"                                                           ',&
+           &'#link = "z"                                                                     ',&
+           &'#[executable.dependencies]                                                      ',&
+           &'#M_CLI   = { git = "https://github.com/urbanjost/M_CLI.git" }                   ',&
+           &'#helloff = { git = "https://gitlab.com/everythingfunctional/helloff.git" }      ',&
+           &'#M_path  = { git = "https://github.com/urbanjost/M_path.git" }                  ',&
+           &'']
+        endif
+
+        if(exists(bname//'/src/'))then
+            littlefile=[character(len=80) ::          &
+            &'program main',                          &
+            &'  use '//to_fortran_name(bname)//', only: say_hello',    &
+            &'  implicit none',                       &
+            &'',                                      &
+            &'  call say_hello()',                    &
+            &'end program main']
+        else
+            littlefile=[character(len=80) ::                 &
+            &'program main',                                 &
+            &'  implicit none',                              &
+            &'',                                             &
+            &'  print *, "hello from project '//bname//'"',  &
+            &'end program main']
+        endif
+        call warnwrite(join_path(settings%name, 'app/main.f90'), littlefile)
+    endif
+
+    if(settings%with_bare)then
+    elseif(settings%with_test)then
+
+       ! create NAME/test or stop
+       call mkdir(join_path(settings%name, 'test'))
+        ! create next section of fpm.toml
+        if(settings%with_full)then
+           tomlfile=[character(len=80) ::  tomlfile ,&
+           &'[[test]]                                                                        ',&
+           &'                                                                                ',&
+           &'  # The same declarations can be made for test programs, which are              ',&
+           &'  # executed with the "fpm test" command and are not build when your            ',&
+           &'  # package is used as a dependency by other packages. These are                ',&
+           &'  # typically unit tests of the package only used during package                ',&
+           &'  # development.                                                                ',&
+           &'                                                                                ',&
+           &'name="runTests"                                                                 ',&
+           &'source-dir="test"                                                               ',&
+           &'main="check.f90"                                                                ',&
+           &'                                                                                ',&
+           &'  # you may repeat this pattern to add additional explicit test program         ',&
+           &'  # parameters. The following example contains a sample of all accepted         ',&
+           &'  # options.                                                                    ',&
+           &'                                                                                ',&
+           &'#[[ test ]]                                                                     ',&
+           &'#name = "tester"                                                                ',&
+           &'#source-dir="test"                                                              ',&
+           &'#main="tester.f90"                                                              ',&
+           &'#link = ["blas", "lapack"]                                                      ',&
+           &'#[test.dependencies]                                                            ',&
+           &'#M_CLI2  = { git = "https://github.com/urbanjost/M_CLI2.git" }                  ',&
+           &'#M_io    = { git = "https://github.com/urbanjost/M_io.git" }                    ',&
+           &'#M_system= { git = "https://github.com/urbanjost/M_system.git" }                ',&
+           &'']
+        endif
+
+        littlefile=[character(len=80) ::       &
+        &'program check',                      &
+        &'implicit none',                      &
+        &'',                                   &
+        &'print *, "Put some tests in here!"', &
+        &'end program check']
+        ! create NAME/test/check.f90
+        call warnwrite(join_path(settings%name, 'test/check.f90'), littlefile)
+    endif
+
+    if(settings%with_bare)then
+    elseif(settings%with_example)then
+
+       ! create NAME/example or stop
+       call mkdir(join_path(settings%name, 'example'))
+        ! create next section of fpm.toml
+        if(settings%with_full)then
+           tomlfile=[character(len=80) ::  tomlfile, &
+           &'[[example]]                                                                     ',&
+           &'                                                                                ',&
+           &'  # Example applications for a project are defined here.                        ',&
+           &'  # These are run via "fpm run --example NAME" and like the                     ',&
+           &'  # test applications, are not built when this package is used as a             ',&
+           &'  # dependency by other packages.                                               ',&
+           &'                                                                                ',&
+           &'name="demo"                                                                     ',&
+           &'source-dir="example"                                                            ',&
+           &'main="demo.f90"                                                                 ',&
+           &'                                                                                ',&
+           &'  #                                                                             ',&
+           &'  # you may add additional programs to the example table. The following         ',&
+           &'  # example contains a sample of all accepted options                           ',&
+           &'                                                                                ',&
+           &'#[[ example ]]                                                                  ',&
+           &'#name = "example-tool"                                                          ',&
+           &'#source-dir="example"                                                           ',&
+           &'#main="tool.f90"                                                                ',&
+           &'#link = "z"                                                                     ',&
+           &'#[example.dependencies]                                                         ',&
+           &'#M_kracken95  = { git = "https://github.com/urbanjost/M_kracken95.git" }        ',&
+           &'#datetime = {git = "https://github.com/wavebitscientific/datetime-fortran.git" }',&
+           &'']
+        endif
+
+        littlefile=[character(len=80) ::          &
+        &'program demo',                          &
+        &'implicit none',                         &
+        &'',                                      &
+        &'print *, "Put some examples in here!"', &
+        &'end program demo']
+        ! create NAME/example/demo.f90
+        call warnwrite(join_path(settings%name, 'example/demo.f90'), littlefile)
+    endif
+
+    ! now that built it write NAME/fpm.toml
+    if( allocated(tomlfile) )then
+        call validate_toml_data(tomlfile)
+        call warnwrite(join_path(settings%name, 'fpm.toml'), tomlfile)
+    else
+        call create_verified_basic_manifest(join_path(settings%name, 'fpm.toml'))
+    endif
+    ! assumes git(1) is installed and in path
+    call run('git init ' // settings%name)
+contains
+
+subroutine create_verified_basic_manifest(filename)
+!> create a basic but verified default manifest file
+use fpm_toml, only : toml_table, toml_serializer, set_value
+use fpm_manifest_package, only : package_config_t, new_package
+use fpm_error, only : error_t
+implicit none
+character(len=*),intent(in) :: filename
+   type(toml_table)            :: table
+   type(toml_serializer)       :: ser
+   type(package_config_t)      :: package
+   type(error_t), allocatable  :: error
+   integer                     :: lun
+   character(len=8)            :: date
+
+    !> get date to put into metadata in manifest file "fpm.toml"
+    call date_and_time(DATE=date)
+    table = toml_table()
+    ser = toml_serializer()
+    call fileopen(filename,lun) ! fileopen stops on error
+
+    call set_value(table, "name",       BNAME)
+    call set_value(table, "version",    "0.1.0")
+    call set_value(table, "license",    "license")
+    call set_value(table, "author",     "Jane Doe")
+    call set_value(table, "maintainer", "jane.doe@example.com")
+    call set_value(table, "copyright",  'Copyright '//date(1:4)//', Jane Doe')
+    ! continue building of manifest
+    ! ...
+    call new_package(package, table, error)
+    if (allocated(error)) stop 3
+    if(settings%verbose)then
+       call table%accept(ser)
+    endif
+    ser%unit=lun
+    call table%accept(ser)
+    call fileclose(lun) ! fileopen stops on error
+
+end subroutine create_verified_basic_manifest
+
+
+subroutine validate_toml_data(input)
+!> verify a string array is a valid fpm.toml file
+!
+use tomlf, only : toml_parse
+use fpm_toml, only : toml_table, toml_serializer
+implicit none
+character(kind=tfc,len=:),intent(in),allocatable :: input(:)
+character(len=1), parameter                      :: nl = new_line('a')
+type(toml_table), allocatable                    :: table
+character(kind=tfc, len=:), allocatable          :: joined_string
+type(toml_serializer)                            :: ser
+
+! you have to add a newline character by using the intrinsic
+! function `new_line("a")` to get the lines processed correctly.
+joined_string = join(input,right=nl)
+
+if (allocated(table)) deallocate(table)
+call toml_parse(table, joined_string)
+if (allocated(table)) then
+   if(settings%verbose)then
+      ! If the TOML file is successfully parsed the table will be allocated and
+      ! can be written to the standard output by passing the `toml_serializer`
+      ! as visitor to the table.
+      call table%accept(ser)
+   endif
+   call table%destroy
+endif
+
+end subroutine validate_toml_data
+
+end subroutine cmd_new
+
+end module fpm_cmd_new
  
  
 !>>>>> ././src/fpm/dependency.f90
@@ -17582,12 +20068,13 @@ end module fpm_dependency
 !>
 module fpm_model
 use iso_fortran_env, only: int64
-use fpm_strings, only: string_t
+use fpm_strings, only: string_t, str
 use fpm_dependency, only: dependency_tree_t
 implicit none
 
 private
-public :: fpm_model_t, srcfile_t, build_target_t, build_target_ptr
+public :: fpm_model_t, srcfile_t, build_target_t, build_target_ptr, &
+    show_model
 
 public :: FPM_UNIT_UNKNOWN, FPM_UNIT_PROGRAM, FPM_UNIT_MODULE, &
           FPM_UNIT_SUBMODULE, FPM_UNIT_SUBPROGRAM, FPM_UNIT_CSOURCE, &
@@ -17667,6 +20154,18 @@ type srcfile_t
 end type srcfile_t
 
 
+!> Type for describing a single package
+type package_t
+
+    !> Name of package
+    character(:), allocatable :: name
+
+    !> Array of sources
+    type(srcfile_t), allocatable :: sources(:)
+
+end type package_t
+
+
 !> Wrapper type for constructing arrays of `[[build_target_t]]` pointers
 type build_target_ptr
 
@@ -17714,15 +20213,15 @@ type build_target_t
 end type build_target_t
 
 
-!> Type describing everything required to build a package
-!> and its dependencies.
+!> Type describing everything required to build
+!>  the root package and its dependencies.
 type :: fpm_model_t
 
-    !> Name of package
+    !> Name of root package
     character(:), allocatable :: package_name
 
-    !> Array of sources
-    type(srcfile_t), allocatable :: sources(:)
+    !> Array of packages (including the root package)
+    type(package_t), allocatable :: packages(:)
 
     !> Array of targets with module-dependencies resolved
     type(build_target_ptr), allocatable :: targets(:)
@@ -17749,6 +20248,255 @@ type :: fpm_model_t
     type(dependency_tree_t) :: deps
 
 end type fpm_model_t
+
+contains
+
+function info_build_target(t) result(s)
+    type(build_target_t), intent(in) :: t
+    character(:), allocatable :: s
+    integer :: i
+    !type build_target_t
+    s = "build_target_t("
+    !    character(:), allocatable :: output_file
+    s = s // 'output_file="' // t%output_file // '"'
+    !    type(srcfile_t), allocatable :: source
+    if (allocated(t%source)) then
+        s = s // ", source=" // info_srcfile_short(t%source)
+    else
+        s = s // ", source=()"
+    end if
+    !    type(build_target_ptr), allocatable :: dependencies(:)
+    s = s // ", dependencies=["
+    if (allocated(t%dependencies)) then
+        do i = 1, size(t%dependencies)
+            s = s // info_build_target_short(t%dependencies(i)%ptr)
+            if (i < size(t%dependencies)) s = s // ", "
+        end do
+    end if
+    s = s // "]"
+    !    integer :: target_type = FPM_TARGET_UNKNOWN
+    s = s // ", target_type="
+    select case(t%target_type)
+    case (FPM_TARGET_UNKNOWN)
+        s = s // "FPM_TARGET_UNKNOWN"
+    case (FPM_TARGET_EXECUTABLE)
+        s = s // "FPM_TARGET_EXECUTABLE"
+    case (FPM_TARGET_ARCHIVE)
+        s = s // "FPM_TARGET_ARCHIVE"
+    case (FPM_TARGET_OBJECT)
+        s = s // "FPM_TARGET_OBJECT"
+    case default
+        s = s // "INVALID"
+    end select
+    !    type(string_t), allocatable :: link_libraries(:)
+    s = s // ", link_libraries=["
+    if (allocated(t%link_libraries)) then
+        do i = 1, size(t%link_libraries)
+            s = s // '"' // t%link_libraries(i)%s // '"'
+            if (i < size(t%link_libraries)) s = s // ", "
+        end do
+    end if
+    s = s // "]"
+    !    type(string_t), allocatable :: link_objects(:)
+    s = s // ", link_objects=["
+    if (allocated(t%link_objects)) then
+        do i = 1, size(t%link_objects)
+            s = s // '"' // t%link_objects(i)%s // '"'
+            if (i < size(t%link_objects)) s = s // ", "
+        end do
+    end if
+    s = s // "]"
+    !    logical :: touched = .false.
+    s = s // ", touched=" // str(t%touched)
+    !    logical :: sorted = .false.
+    s = s // ", sorted=" // str(t%sorted)
+    !    logical :: skip = .false.
+    s = s // ", skip=" // str(t%skip)
+    !    integer :: schedule = -1
+    s = s // ", schedule=" // str(t%schedule)
+    !    integer(int64), allocatable :: digest_cached
+    if (allocated(t%digest_cached)) then
+        s = s // ", digest_cached=" // str(t%digest_cached)
+    else
+        s = s // ", digest_cached=()"
+    end if
+    !end type build_target_t
+    s = s // ")"
+end function info_build_target
+
+function info_build_target_short(t) result(s)
+    ! Prints a shortened representation of build_target_t
+    type(build_target_t), intent(in) :: t
+    character(:), allocatable :: s
+    integer :: i
+    s = "build_target_t("
+    s = s // 'output_file="' // t%output_file // '"'
+    s = s // ", ...)"
+end function info_build_target_short
+
+function info_package(p) result(s)
+    ! Returns representation of package_t
+    type(package_t), intent(in) :: p
+    character(:), allocatable :: s
+
+    integer :: i
+
+    s = s // 'package_t('
+    s = s // 'name="' // p%name //'"'
+    s = s // ', sources=['
+    do i = 1, size(p%sources)
+        s = s // info_srcfile(p%sources(i))
+        if (i < size(p%sources)) s = s // ", "
+    end do
+    s = s // "]"
+    s = s // ")"
+
+end function info_package
+
+function info_srcfile(source) result(s)
+    type(srcfile_t), intent(in) :: source
+    character(:), allocatable :: s
+    integer :: i
+    !type srcfile_t
+    s = "srcfile_t("
+    !    character(:), allocatable :: file_name
+    s = s // 'file_name="' // source%file_name // '"'
+    !    character(:), allocatable :: exe_name
+    s = s // ', exe_name="' // source%exe_name // '"'
+    !    integer :: unit_scope = FPM_SCOPE_UNKNOWN
+    s = s // ", unit_scope="
+    select case(source%unit_scope)
+    case (FPM_SCOPE_UNKNOWN)
+        s = s // "FPM_SCOPE_UNKNOWN"
+    case (FPM_SCOPE_LIB)
+        s = s // "FPM_SCOPE_LIB"
+    case (FPM_SCOPE_DEP)
+        s = s // "FPM_SCOPE_DEP"
+    case (FPM_SCOPE_APP)
+        s = s // "FPM_SCOPE_APP"
+    case (FPM_SCOPE_TEST)
+        s = s // "FPM_SCOPE_TEST"
+    case (FPM_SCOPE_EXAMPLE)
+        s = s // "FPM_SCOPE_EXAMPLE"
+    case default
+        s = s // "INVALID"
+    end select
+    !    type(string_t), allocatable :: modules_provided(:)
+    s = s // ", modules_provided=["
+    do i = 1, size(source%modules_provided)
+        s = s // '"' // source%modules_provided(i)%s // '"'
+        if (i < size(source%modules_provided)) s = s // ", "
+    end do
+    s = s // "]"
+    !    integer :: unit_type = FPM_UNIT_UNKNOWN
+    s = s // ", unit_type="
+    select case(source%unit_type)
+    case (FPM_UNIT_UNKNOWN)
+        s = s // "FPM_UNIT_UNKNOWN"
+    case (FPM_UNIT_PROGRAM)
+        s = s // "FPM_UNIT_PROGRAM"
+    case (FPM_UNIT_MODULE)
+        s = s // "FPM_UNIT_MODULE"
+    case (FPM_UNIT_SUBMODULE)
+        s = s // "FPM_UNIT_SUBMODULE"
+    case (FPM_UNIT_SUBPROGRAM)
+        s = s // "FPM_UNIT_SUBPROGRAM"
+    case (FPM_UNIT_CSOURCE)
+        s = s // "FPM_UNIT_CSOURCE"
+    case (FPM_UNIT_CHEADER)
+        s = s // "FPM_UNIT_CHEADER"
+    case default
+        s = s // "INVALID"
+    end select
+    !    type(string_t), allocatable :: modules_used(:)
+    s = s // ", modules_used=["
+    do i = 1, size(source%modules_used)
+        s = s // '"' // source%modules_used(i)%s // '"'
+        if (i < size(source%modules_used)) s = s // ", "
+    end do
+    s = s // "]"
+    !    type(string_t), allocatable :: include_dependencies(:)
+    s = s // ", include_dependencies=["
+    do i = 1, size(source%include_dependencies)
+        s = s // '"' // source%include_dependencies(i)%s // '"'
+        if (i < size(source%include_dependencies)) s = s // ", "
+    end do
+    s = s // "]"
+    !    type(string_t), allocatable :: link_libraries(:)
+    s = s // ", link_libraries=["
+    do i = 1, size(source%link_libraries)
+        s = s // '"' // source%link_libraries(i)%s // '"'
+        if (i < size(source%link_libraries)) s = s // ", "
+    end do
+    s = s // "]"
+    !    integer(int64) :: digest
+    s = s // ", digest=" // str(source%digest)
+    !end type srcfile_t
+    s = s // ")"
+end function info_srcfile
+
+function info_srcfile_short(source) result(s)
+    ! Prints a shortened version of srcfile_t
+    type(srcfile_t), intent(in) :: source
+    character(:), allocatable :: s
+    integer :: i
+    s = "srcfile_t("
+    s = s // 'file_name="' // source%file_name // '"'
+    s = s // ", ...)"
+end function info_srcfile_short
+
+function info_model(model) result(s)
+    type(fpm_model_t), intent(in) :: model
+    character(:), allocatable :: s
+    integer :: i
+    !type :: fpm_model_t
+    s = "fpm_model_t("
+    !    character(:), allocatable :: package_name
+    s = s // 'package_name="' // model%package_name // '"'
+    !    type(srcfile_t), allocatable :: sources(:)
+    s = s // ", packages=["
+    do i = 1, size(model%packages)
+        s = s // info_package(model%packages(i))
+        if (i < size(model%packages)) s = s // ", "
+    end do
+    s = s // "]"
+    !    type(build_target_ptr), allocatable :: targets(:)
+    s = s // ", targets=["
+    do i = 1, size(model%targets)
+        s = s // info_build_target(model%targets(i)%ptr)
+        if (i < size(model%targets)) s = s // ", "
+    end do
+    s = s // "]"
+    !    character(:), allocatable :: fortran_compiler
+    s = s // ', fortran_compiler="' // model%fortran_compiler // '"'
+    !    character(:), allocatable :: fortran_compile_flags
+    s = s // ', fortran_compile_flags="' // model%fortran_compile_flags // '"'
+    !    character(:), allocatable :: link_flags
+    s = s // ', link_flags="' // model%link_flags // '"'
+    !    character(:), allocatable :: library_file
+    s = s // ', library_file="' // model%library_file // '"'
+    !    character(:), allocatable :: output_directory
+    s = s // ', output_directory="' // model%output_directory // '"'
+    !    type(string_t), allocatable :: link_libraries(:)
+    s = s // ", link_libraries=["
+    do i = 1, size(model%link_libraries)
+        s = s // '"' // model%link_libraries(i)%s // '"'
+        if (i < size(model%link_libraries)) s = s // ", "
+    end do
+    s = s // "]"
+    !    type(dependency_tree_t) :: deps
+    ! TODO: print `dependency_tree_t` properly, which should become part of the
+    !       model, not imported from another file
+    s = s // ", deps=dependency_tree_t(...)"
+    !end type fpm_model_t
+    s = s // ")"
+end function info_model
+
+subroutine show_model(model)
+    ! Prints a human readable representation of the Model
+    type(fpm_model_t), intent(in) :: model
+    print *, info_model(model)
+end subroutine show_model
 
 end module fpm_model
  
@@ -17895,7 +20643,7 @@ subroutine build_package(model)
     do i=1,size(schedule_ptr)-1
 
         ! Build targets in schedule region i
-        !$omp parallel do default(shared)
+        !$omp parallel do default(shared) schedule(dynamic,1)
         do j=schedule_ptr(i),(schedule_ptr(i+1)-1)
 
             call build_target(model,queue(j)%ptr)
@@ -18158,7 +20906,6 @@ character(len=:),allocatable :: mandatory ! flags required for fpm to function p
        & -Wimplicit-interface&
        & -fPIC&
        & -fmax-errors=1&
-       & -ffast-math&
        & -funroll-loops&
        &'
        mandatory=' -J '//modpath//' -I '//modpath 
@@ -18180,7 +20927,6 @@ character(len=:),allocatable :: mandatory ! flags required for fpm to function p
        & -Wimplicit-interface&
        & -fPIC&
        & -fmax-errors=1&
-       & -ffast-math&
        & -funroll-loops&
        & -fcoarray=single&
        &'
@@ -18347,8 +21093,8 @@ end module fpm_compiler
 !>
 !> Both functions additionally calculate and store a file digest (hash) which
 !> is used by the backend ([[fpm_backend]]) to skip compilation of unmodified sources.
-!> 
-!> Both functions return an instance of the [[srcfile_t]] type. 
+!>
+!> Both functions return an instance of the [[srcfile_t]] type.
 !>
 !> For more information, please read the documentation for each function:
 !>
@@ -18357,7 +21103,7 @@ end module fpm_compiler
 !>
 module fpm_source_parsing
 use fpm_error, only: error_t, file_parse_error, fatal_error
-use fpm_strings, only: string_t, string_cat, split, lower, str_ends_with, fnv_1a
+use fpm_strings, only: string_t, string_cat, len_trim, split, lower, str_ends_with, fnv_1a
 use fpm_model, only: srcfile_t, &
                     FPM_UNIT_UNKNOWN, FPM_UNIT_PROGRAM, FPM_UNIT_MODULE, &
                     FPM_UNIT_SUBMODULE, FPM_UNIT_SUBPROGRAM, &
@@ -18379,7 +21125,7 @@ character(15), parameter :: INTRINSIC_MODULE_NAMES(*) =  &
 contains
 
 !> Parsing of free-form fortran source files
-!> 
+!>
 !> The following statements are recognised and parsed:
 !>
 !> - `Module`/`submodule`/`program` declaration
@@ -18428,7 +21174,7 @@ function parse_f_source(f_filename,error) result(f_source)
     close(fh)
 
     ! Ignore empty files, returned as FPM_UNIT_UNKNOW
-    if (len_trim(string_cat(file_lines,' ')) < 1) return
+    if (len_trim(file_lines) < 1) return
 
     f_source%digest = fnv_1a(file_lines)
 
@@ -18512,7 +21258,7 @@ function parse_f_source(f_filename,error) result(f_source)
                 if (index(adjustl(file_lines(i)%s(ic+7:)),'"') == 1 .or. &
                     index(adjustl(file_lines(i)%s(ic+7:)),"'") == 1 ) then
 
-    
+
                     n_include = n_include + 1
 
                     if (pass == 2) then
@@ -18605,7 +21351,7 @@ function parse_f_source(f_filename,error) result(f_source)
                     if (index(temp_string,':') > 0) then
 
                         temp_string = temp_string(index(temp_string,':')+1:)
-                        
+
                     end if
 
                     if (.not.validate_name(temp_string)) then
@@ -18629,7 +21375,7 @@ function parse_f_source(f_filename,error) result(f_source)
 
                 temp_string = lower(split_n(file_lines(i)%s,n=2,delims=' ',stat=stat))
                 if (stat == 0) then
-                    
+
                     if (scan(temp_string,'=(')>0 ) then
                         ! Ignore:
                         ! program =*
@@ -18684,7 +21430,7 @@ function parse_f_source(f_filename,error) result(f_source)
                 (name(i:i) >= '0' .and. name(i:i) <= '9').or. &
                 (lower(name(i:i)) >= 'a' .and. lower(name(i:i)) <= 'z').or. &
                 name(i:i) == '_') ) then
-                    
+
                 valid = .false.
                 return
             end if
@@ -18700,7 +21446,7 @@ end function parse_f_source
 
 
 !> Parsing of c source files
-!> 
+!>
 !> The following statements are recognised and parsed:
 !>
 !> - `#include` preprocessor statement
@@ -18733,13 +21479,13 @@ function parse_c_source(c_filename,error) result(c_source)
     close(fh)
 
     ! Ignore empty files, returned as FPM_UNIT_UNKNOW
-    if (len_trim(string_cat(file_lines,' ')) < 1) then
+    if (len_trim(file_lines) < 1) then
         c_source%unit_type = FPM_UNIT_UNKNOWN
         return
     end if
-    
+
     c_source%digest = fnv_1a(file_lines)
-    
+
     do pass = 1,2
         n_include = 0
         file_loop: do i=1,size(file_lines)
@@ -18747,7 +21493,7 @@ function parse_c_source(c_filename,error) result(c_source)
             ! Process 'INCLUDE' statements
             if (index(adjustl(lower(file_lines(i)%s)),'#include') == 1 .and. &
                 index(file_lines(i)%s,'"') > 0) then
-                            
+
                 n_include = n_include + 1
 
                 if (pass == 2) then
@@ -18781,7 +21527,7 @@ end function parse_c_source
 !> n=0  will return the last item
 !> n=-1 will return the penultimate item etc.
 !>
-!> stat = 1 on return if the index 
+!> stat = 1 on return if the index
 !>  is not found
 !>
 function split_n(string,delims,n,stat) result(substring)
@@ -18817,7 +21563,8 @@ function split_n(string,delims,n,stat) result(substring)
 
 end function split_n
 
-end module fpm_source_parsing 
+end module fpm_source_parsing
+ 
  
 !>>>>> ././src/fpm_targets.f90
 !># Build target handling
@@ -18875,16 +21622,13 @@ contains
 !>
 !> @note Inter-object dependencies based on modules used and provided are generated separately
 !> in `[[resolve_module_dependencies]]` after all targets have been enumerated.
-subroutine targets_from_sources(model,sources)
+subroutine targets_from_sources(model)
 
     !> The package model within which to construct the target list
     type(fpm_model_t), intent(inout), target :: model
 
-    !> The list of sources from which to construct the target list
-    type(srcfile_t), intent(in) :: sources(:)
-
-    integer :: i
-    character(:), allocatable :: xsuffix
+    integer :: i, j
+    character(:), allocatable :: xsuffix, exe_dir
     type(build_target_t), pointer :: dep
     logical :: with_lib
 
@@ -18894,55 +21638,71 @@ subroutine targets_from_sources(model,sources)
         xsuffix = ''
     end if
 
-    with_lib = any([(sources(i)%unit_scope == FPM_SCOPE_LIB,i=1,size(sources))])
+    with_lib = any([((model%packages(j)%sources(i)%unit_scope == FPM_SCOPE_LIB, &
+                      i=1,size(model%packages(j)%sources)), &
+                      j=1,size(model%packages))])
 
     if (with_lib) call add_target(model%targets,type = FPM_TARGET_ARCHIVE,&
                             output_file = join_path(model%output_directory,&
                                    model%package_name,'lib'//model%package_name//'.a'))
 
-    do i=1,size(sources)
+    do j=1,size(model%packages)
         
-        select case (sources(i)%unit_type)
-        case (FPM_UNIT_MODULE,FPM_UNIT_SUBMODULE,FPM_UNIT_SUBPROGRAM,FPM_UNIT_CSOURCE)
+        associate(sources=>model%packages(j)%sources)
 
-            call add_target(model%targets,source = sources(i), &
-                        type = FPM_TARGET_OBJECT,&
-                        output_file = get_object_name(sources(i)))
-            
-            if (with_lib .and. sources(i)%unit_scope == FPM_SCOPE_LIB) then
-                ! Archive depends on object
-                call add_dependency(model%targets(1)%ptr, model%targets(size(model%targets))%ptr)
-            end if
+            do i=1,size(sources)
+                
+                select case (sources(i)%unit_type)
+                case (FPM_UNIT_MODULE,FPM_UNIT_SUBMODULE,FPM_UNIT_SUBPROGRAM,FPM_UNIT_CSOURCE)
 
-        case (FPM_UNIT_PROGRAM)
+                    call add_target(model%targets,source = sources(i), &
+                                type = FPM_TARGET_OBJECT,&
+                                output_file = get_object_name(sources(i)))
+                    
+                    if (with_lib .and. sources(i)%unit_scope == FPM_SCOPE_LIB) then
+                        ! Archive depends on object
+                        call add_dependency(model%targets(1)%ptr, model%targets(size(model%targets))%ptr)
+                    end if
 
-            call add_target(model%targets,type = FPM_TARGET_OBJECT,&
-                        output_file = get_object_name(sources(i)), &
-                        source = sources(i) &
-                        )
-            
-            if (any(sources(i)%unit_scope == [FPM_SCOPE_APP, FPM_SCOPE_EXAMPLE])) then
-                call add_target(model%targets,type = FPM_TARGET_EXECUTABLE,&
-                            link_libraries = sources(i)%link_libraries, &
-                            output_file = join_path(model%output_directory,'app', &
-                            sources(i)%exe_name//xsuffix))
-            else
-                call add_target(model%targets,type = FPM_TARGET_EXECUTABLE,&
-                            link_libraries = sources(i)%link_libraries, &
-                            output_file = join_path(model%output_directory,'test', &
-                            sources(i)%exe_name//xsuffix))
-            
-            end if
+                case (FPM_UNIT_PROGRAM)
 
-            ! Executable depends on object
-            call add_dependency(model%targets(size(model%targets))%ptr, model%targets(size(model%targets)-1)%ptr)
+                    call add_target(model%targets,type = FPM_TARGET_OBJECT,&
+                                output_file = get_object_name(sources(i)), &
+                                source = sources(i) &
+                                )
+                    
+                    if (sources(i)%unit_scope == FPM_SCOPE_APP) then
 
-            if (with_lib) then
-                ! Executable depends on library
-                call add_dependency(model%targets(size(model%targets))%ptr, model%targets(1)%ptr)
-            end if
-            
-        end select
+                        exe_dir = 'app'
+
+                    else if (sources(i)%unit_scope == FPM_SCOPE_EXAMPLE) then
+
+                        exe_dir = 'example'
+
+                    else
+
+                        exe_dir = 'test'
+
+                    end if
+
+                    call add_target(model%targets,type = FPM_TARGET_EXECUTABLE,&
+                                    link_libraries = sources(i)%link_libraries, &
+                                    output_file = join_path(model%output_directory,exe_dir, &
+                                    sources(i)%exe_name//xsuffix))
+
+                    ! Executable depends on object
+                    call add_dependency(model%targets(size(model%targets))%ptr, model%targets(size(model%targets)-1)%ptr)
+
+                    if (with_lib) then
+                        ! Executable depends on library
+                        call add_dependency(model%targets(size(model%targets))%ptr, model%targets(1)%ptr)
+                    end if
+                    
+                end select
+
+            end do
+
+        end associate
 
     end do
 
@@ -18961,9 +21721,6 @@ subroutine targets_from_sources(model,sources)
         
         object_file = canon_path(source%file_name)
 
-        ! Ignore first directory level
-        object_file = object_file(index(object_file,filesep)+1:)
-        
         ! Convert any remaining directory separators to underscores
         i = index(object_file,filesep)
         do while(i > 0)
@@ -18971,18 +21728,7 @@ subroutine targets_from_sources(model,sources)
             i = index(object_file,filesep)
         end do
 
-        select case(source%unit_scope)
-
-        case (FPM_SCOPE_APP, FPM_SCOPE_EXAMPLE)
-            object_file = join_path(model%output_directory,'app',object_file)//'.o'
-
-        case (FPM_SCOPE_TEST)
-            object_file = join_path(model%output_directory,'test',object_file)//'.o'
-
-        case default
-            object_file = join_path(model%output_directory,model%package_name,object_file)//'.o'
-            
-        end select
+        object_file = join_path(model%output_directory,model%package_name,object_file)//'.o'
     
     end function get_object_name
 
@@ -19248,6 +21994,9 @@ implicit none
 private
 public :: add_sources_from_dir, add_executable_sources
 
+character(4), parameter :: fortran_suffixes(2) = [".f90", &
+                                                  ".f  "]
+
 contains
 
 !> Wrapper to source parsing routines.
@@ -19257,7 +22006,7 @@ function parse_source(source_file_path,error) result(source)
     type(error_t), allocatable, intent(out) :: error
     type(srcfile_t)  :: source
 
-    if (str_ends_with(lower(source_file_path), ".f90")) then
+    if (str_ends_with(lower(source_file_path), fortran_suffixes)) then
 
         source = parse_f_source(source_file_path, error)
 
@@ -19265,8 +22014,7 @@ function parse_source(source_file_path,error) result(source)
             source%exe_name = basename(source_file_path,suffix=.false.)
         end if
 
-    else if (str_ends_with(lower(source_file_path), ".c") .or. &
-        str_ends_with(lower(source_file_path), ".h")) then
+    else if (str_ends_with(lower(source_file_path), [".c", ".h"])) then
 
         source = parse_c_source(source_file_path,error)
 
@@ -19313,9 +22061,8 @@ subroutine add_sources_from_dir(sources,directory,scope,with_executables,recurse
     end if
 
     is_source = [(.not.(canon_path(file_names(i)%s) .in. existing_src_files) .and. &
-                  (str_ends_with(lower(file_names(i)%s), ".f90") .or. &
-                   str_ends_with(lower(file_names(i)%s), ".c") .or. &
-                   str_ends_with(lower(file_names(i)%s), ".h") ),i=1,size(file_names))]
+                  (str_ends_with(lower(file_names(i)%s), fortran_suffixes) .or. &
+                   str_ends_with(lower(file_names(i)%s),[".c",".h"]) ),i=1,size(file_names))]
     src_file_names = pack(file_names,is_source)
 
     allocate(dir_sources(size(src_file_names)))
@@ -19454,7 +22201,7 @@ end module fpm_sources
  
 !>>>>> ././src/fpm.f90
 module fpm
-use fpm_strings, only: string_t, str_ends_with, operator(.in.)
+use fpm_strings, only: string_t, operator(.in.), glob
 use fpm_backend, only: build_package
 use fpm_command_line, only: fpm_build_settings, fpm_new_settings, &
                       fpm_run_settings, fpm_install_settings, fpm_test_settings
@@ -19464,7 +22211,7 @@ use fpm_filesystem, only: is_dir, join_path, number_of_rows, list_files, exists,
 use fpm_model, only: fpm_model_t, srcfile_t, build_target_t, &
                     FPM_SCOPE_UNKNOWN, FPM_SCOPE_LIB, FPM_SCOPE_DEP, &
                     FPM_SCOPE_APP, FPM_SCOPE_EXAMPLE, FPM_SCOPE_TEST, &
-                    FPM_TARGET_EXECUTABLE, FPM_TARGET_ARCHIVE
+                    FPM_TARGET_EXECUTABLE, FPM_TARGET_ARCHIVE, show_model
 use fpm_compiler, only: add_compile_flag_defaults
 
 
@@ -19480,7 +22227,8 @@ use,intrinsic :: iso_fortran_env, only : stdin=>input_unit,   &
 use fpm_manifest_dependency, only: dependency_config_t
 implicit none
 private
-public :: build_model, cmd_build, cmd_install, cmd_run
+public :: cmd_build, cmd_run
+public :: build_model
 
 contains
 
@@ -19492,7 +22240,6 @@ subroutine build_model(model, settings, package, error)
     type(fpm_build_settings), intent(in) :: settings
     type(package_config_t), intent(in) :: package
     type(error_t), allocatable, intent(out) :: error
-    type(string_t), allocatable :: package_list(:)
 
     integer :: i
     type(package_config_t) :: dependency
@@ -19515,10 +22262,6 @@ subroutine build_model(model, settings, package, error)
     call model%deps%add(package, error)
     if (allocated(error)) return
 
-    allocate(package_list(1))
-    package_list(1)%s = package%name
-
-
     if(settings%compiler.eq.'')then
         model%fortran_compiler = 'gfortran'
     else
@@ -19531,9 +22274,11 @@ subroutine build_model(model, settings, package, error)
 
     model%link_flags = ''
 
+    allocate(model%packages(model%deps%ndep))
+
     ! Add sources from executable directories
     if (is_dir('app') .and. package%build%auto_executables) then
-        call add_sources_from_dir(model%sources,'app', FPM_SCOPE_APP, &
+        call add_sources_from_dir(model%packages(1)%sources,'app', FPM_SCOPE_APP, &
                                    with_executables=.true., error=error)
 
         if (allocated(error)) then
@@ -19542,7 +22287,7 @@ subroutine build_model(model, settings, package, error)
 
     end if
     if (is_dir('example') .and. package%build%auto_examples) then
-        call add_sources_from_dir(model%sources,'example', FPM_SCOPE_EXAMPLE, &
+        call add_sources_from_dir(model%packages(1)%sources,'example', FPM_SCOPE_EXAMPLE, &
                                    with_executables=.true., error=error)
 
         if (allocated(error)) then
@@ -19551,7 +22296,7 @@ subroutine build_model(model, settings, package, error)
 
     end if
     if (is_dir('test') .and. package%build%auto_tests) then
-        call add_sources_from_dir(model%sources,'test', FPM_SCOPE_TEST, &
+        call add_sources_from_dir(model%packages(1)%sources,'test', FPM_SCOPE_TEST, &
                                    with_executables=.true., error=error)
 
         if (allocated(error)) then
@@ -19560,7 +22305,7 @@ subroutine build_model(model, settings, package, error)
 
     end if
     if (allocated(package%executable)) then
-        call add_executable_sources(model%sources, package%executable, FPM_SCOPE_APP, &
+        call add_executable_sources(model%packages(1)%sources, package%executable, FPM_SCOPE_APP, &
                                      auto_discover=package%build%auto_executables, &
                                      error=error)
 
@@ -19570,7 +22315,7 @@ subroutine build_model(model, settings, package, error)
 
     end if
     if (allocated(package%example)) then
-        call add_executable_sources(model%sources, package%example, FPM_SCOPE_EXAMPLE, &
+        call add_executable_sources(model%packages(1)%sources, package%example, FPM_SCOPE_EXAMPLE, &
                                      auto_discover=package%build%auto_examples, &
                                      error=error)
 
@@ -19580,7 +22325,7 @@ subroutine build_model(model, settings, package, error)
 
     end if
     if (allocated(package%test)) then
-        call add_executable_sources(model%sources, package%test, FPM_SCOPE_TEST, &
+        call add_executable_sources(model%packages(1)%sources, package%test, FPM_SCOPE_TEST, &
                                      auto_discover=package%build%auto_tests, &
                                      error=error)
 
@@ -19598,9 +22343,11 @@ subroutine build_model(model, settings, package, error)
                 apply_defaults=.true.)
             if (allocated(error)) exit
 
+            model%packages(i)%name = dependency%name
+
             if (allocated(dependency%library)) then
                 lib_dir = join_path(dep%proj_dir, dependency%library%source_dir)
-                call add_sources_from_dir(model%sources, lib_dir, FPM_SCOPE_LIB, &
+                call add_sources_from_dir(model%packages(i)%sources, lib_dir, FPM_SCOPE_LIB, &
                     error=error)
                 if (allocated(error)) exit
             end if
@@ -19612,7 +22359,7 @@ subroutine build_model(model, settings, package, error)
     end do
     if (allocated(error)) return
 
-    call targets_from_sources(model,model%sources)
+    call targets_from_sources(model)
 
     do i = 1, size(model%link_libraries)
         model%link_flags = model%link_flags // " -l" // model%link_libraries(i)%s
@@ -19653,17 +22400,13 @@ if(settings%list)then
     do i=1,size(model%targets)
         write(stderr,*) model%targets(i)%ptr%output_file
     enddo
+else if (settings%show_model) then
+    call show_model(model)
 else
     call build_package(model)
 endif
 
 end subroutine
-
-subroutine cmd_install(settings)
-type(fpm_install_settings), intent(in) :: settings
-    print *, "fpm error: 'fpm install' not implemented."
-    error stop 8
-end subroutine cmd_install
 
 subroutine cmd_run(settings,test)
     class(fpm_run_settings), intent(in) :: settings
@@ -19725,7 +22468,7 @@ subroutine cmd_run(settings,test)
 
                     do j=1,size(settings%name)
 
-                        if (trim(settings%name(j))==exe_source%exe_name) then
+                        if (glob(trim(exe_source%exe_name),trim(settings%name(j)))) then
 
                             found(j) = .true.
                             exe_cmd%s = exe_target%output_file
@@ -19754,14 +22497,21 @@ subroutine cmd_run(settings,test)
     end if
 
     ! Check all names are valid
-    if (any(.not.found)) then
-
-        write(stderr,'(A)',advance="no")'fpm::run<ERROR> specified names '
-        do j=1,size(settings%name)
-            if (.not.found(j)) write(stderr,'(A)',advance="no") '"'//trim(settings%name(j))//'" '
-        end do
-        write(stderr,'(A)') 'not found.'
-        write(stderr,*)
+    ! or no name and found more than one file
+    if ( any(.not.found) .or. &
+    & (size(settings%name).eq.0 .and. size(executables).gt.1 .and. .not.test) .and.&
+    & .not.settings%list) then
+        if(any(.not.found))then
+           write(stderr,'(A)',advance="no")'fpm::run<ERROR> specified names '
+           do j=1,size(settings%name)
+               if (.not.found(j)) write(stderr,'(A)',advance="no") '"'//trim(settings%name(j))//'" '
+           end do
+           write(stderr,'(A)') 'not found.'
+           write(stderr,*)
+        else if(settings%verbose)then
+           write(stderr,'(A)',advance="yes")'<INFO>when more than one executable is available'
+           write(stderr,'(A)',advance="yes")'      program names must be specified.'
+        endif
 
         j = 1
         nCol = LINE_WIDTH/col_width
@@ -19818,6 +22568,179 @@ end subroutine cmd_run
 end module fpm
  
  
+!>>>>> ././src/fpm/cmd/install.f90
+module fpm_cmd_install
+  use, intrinsic :: iso_fortran_env, only : output_unit
+  use fpm, only : build_model
+  use fpm_backend, only : build_package
+  use fpm_command_line, only : fpm_install_settings
+  use fpm_error, only : error_t, fatal_error
+  use fpm_filesystem, only : join_path, list_files
+  use fpm_installer, only : installer_t, new_installer
+  use fpm_manifest, only : package_config_t, get_package_data
+  use fpm_model, only : fpm_model_t, build_target_t, FPM_TARGET_EXECUTABLE, &
+    FPM_SCOPE_APP
+  use fpm_strings, only : string_t, resize
+  implicit none
+  private
+
+  public :: cmd_install
+
+contains
+
+  !> Entry point for the fpm-install subcommand
+  subroutine cmd_install(settings)
+    !> Representation of the command line settings
+    type(fpm_install_settings), intent(in) :: settings
+    type(package_config_t) :: package
+    type(error_t), allocatable :: error
+    type(fpm_model_t) :: model
+    type(installer_t) :: installer
+    character(len=:), allocatable :: lib, exe, dir
+    logical :: installable
+
+    call get_package_data(package, "fpm.toml", error, apply_defaults=.true.)
+    call handle_error(error)
+
+    call build_model(model, settings%fpm_build_settings, package, error)
+    call handle_error(error)
+
+    installable = (allocated(package%library) .and. package%install%library) &
+      .or. allocated(package%executable)
+    if (.not.installable) then
+      call fatal_error(error, "Project does not contain any installable targets")
+      call handle_error(error)
+    end if
+
+    if (settings%list) then
+      call install_info(output_unit, package, model)
+      return
+    end if
+
+    if (.not.settings%no_rebuild) then
+      call build_package(model)
+    end if
+
+    call new_installer(installer, prefix=settings%prefix, &
+      bindir=settings%bindir, libdir=settings%libdir, &
+      includedir=settings%includedir, &
+      verbosity=merge(2, 1, settings%verbose))
+
+    if (allocated(package%library) .and. package%install%library) then
+      dir = join_path(model%output_directory, model%package_name)
+      lib = "lib"//model%package_name//".a"
+      call installer%install_library(join_path(dir, lib), error)
+      call handle_error(error)
+
+      call install_module_files(installer, dir, error)
+      call handle_error(error)
+    end if
+
+    if (allocated(package%executable)) then
+      call install_executables(installer, model, error)
+      call handle_error(error)
+    end if
+
+  end subroutine cmd_install
+
+  subroutine install_info(unit, package, model)
+    integer, intent(in) :: unit
+    type(package_config_t), intent(in) :: package
+    type(fpm_model_t), intent(in) :: model
+
+    integer :: ii, ntargets
+    character(len=:), allocatable :: lib
+    type(string_t), allocatable :: install_target(:)
+
+    call resize(install_target)
+
+    ntargets = 0
+    if (allocated(package%library) .and. package%install%library) then
+      ntargets = ntargets + 1
+      lib = join_path(model%output_directory, model%package_name, &
+        "lib"//model%package_name//".a")
+      install_target(ntargets)%s = lib
+    end if
+    do ii = 1, size(model%targets)
+      if (is_executable_target(model%targets(ii)%ptr)) then
+        if (ntargets >= size(install_target)) call resize(install_target)
+        ntargets = ntargets + 1
+        install_target(ntargets)%s = model%targets(ii)%ptr%output_file
+      end if
+    end do
+
+    write(unit, '("#", *(1x, g0))') &
+      "total number of installable targets:", ntargets
+    do ii = 1, ntargets
+      write(unit, '("-", *(1x, g0))') install_target(ii)%s
+    end do
+
+  end subroutine install_info
+
+  subroutine install_module_files(installer, dir, error)
+    type(installer_t), intent(inout) :: installer
+    character(len=*), intent(in) :: dir
+    type(error_t), allocatable, intent(out) :: error
+    type(string_t), allocatable :: modules(:)
+    integer :: ii
+
+    call list_files(dir, modules, recurse=.false.)
+
+    do ii = 1, size(modules)
+      if (is_module_file(modules(ii)%s)) then
+        call installer%install_header(modules(ii)%s, error)
+        if (allocated(error)) exit
+      end if
+    end do
+    if (allocated(error)) return
+
+  end subroutine install_module_files
+
+  subroutine install_executables(installer, model, error)
+    type(installer_t), intent(inout) :: installer
+    type(fpm_model_t), intent(in) :: model
+    type(error_t), allocatable, intent(out) :: error
+    integer :: ii
+
+    do ii = 1, size(model%targets)
+      if (is_executable_target(model%targets(ii)%ptr)) then
+        call installer%install_executable(model%targets(ii)%ptr%output_file, error)
+        if (allocated(error)) exit
+      end if
+    end do
+    if (allocated(error)) return
+
+  end subroutine install_executables
+
+  elemental function is_executable_target(target_ptr) result(is_exe)
+    type(build_target_t), intent(in) :: target_ptr
+    logical :: is_exe
+    is_exe = target_ptr%target_type == FPM_TARGET_EXECUTABLE .and. &
+      allocated(target_ptr%dependencies)
+    if (is_exe) then
+      is_exe = target_ptr%dependencies(1)%ptr%source%unit_scope == FPM_SCOPE_APP
+    end if
+  end function is_executable_target
+
+  elemental function is_module_file(name) result(is_mod)
+    character(len=*), intent(in) :: name
+    logical :: is_mod
+    integer :: ll
+    ll = len(name)
+    is_mod = name(max(1, ll-3):ll) == ".mod"
+  end function is_module_file
+
+  subroutine handle_error(error)
+    type(error_t), intent(in), optional :: error
+    if (present(error)) then
+      print '("[Error]", 1x, a)', error%message
+      error stop 1
+    end if
+  end subroutine handle_error
+
+end module fpm_cmd_install
+ 
+ 
 !>>>>> app/main.f90
 program main
 use fpm_command_line, only: &
@@ -19829,7 +22752,8 @@ use fpm_command_line, only: &
         fpm_install_settings, &
         fpm_update_settings, &
         get_command_line_settings
-use fpm, only: cmd_build, cmd_install, cmd_run
+use fpm, only: cmd_build, cmd_run
+use fpm_cmd_install, only: cmd_install
 use fpm_cmd_new, only: cmd_new
 use fpm_cmd_update, only : cmd_update
 
@@ -19855,3 +22779,4 @@ type is (fpm_update_settings)
 end select
 
 end program main
+ 

@@ -1427,7 +1427,7 @@ help_text=[ CHARACTER(LEN=128) :: &
 '                                                                                ',&
 '   Split standard input stream, containing source of several fortran90          ',&
 '   program units into individual files. each output file contains a single      ',&
-'   program unit named after the unit, unless that filenme exists. If the        ',&
+'   program unit named after the unit, unless that filename exists. If the       ',&
 '   name exists a file will be created names main0001.f90-main9999.f90,          ',&
 '   or bdta0001.f90-bdta9999.f90. If a file with that name already exists,       ',&
 '   it is put in dupl0001.f90-dupl9999.f90.                                      ',&
