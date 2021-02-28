@@ -1,0 +1,24 @@
+## A Red Hat Linux machine
+```text
+Script started on 2021-02-27 21:33:23-05:00
+bash-4.4$ uname -a
+Linux localhost.localdomain 4.18.0-193.1.2.el8_2.x86_64 #1 SMP Thu May 7 16:37:54 UTC 2020 x86_64 x86_64 x86_64 GNU/Linux
+
+bash-4.4$ cat /proc/version
+Linux version 4.18.0-193.1.2.el8_2.x86_64 (mockbuild@x86-vm-09.build.eng.bos.redhat.com) (gcc version 8.3.1 20191121 (Red Hat 8.3.1-5) (GCC)) #1 SMP Thu May 7 16:37:54 UTC 2020
+
+bash-4.4$ lsb_release -a
+LSB Version:	:core-4.1-amd64:core-4.1-noarch
+Distributor ID:	RedHatEnterprise
+Description:	Red Hat Enterprise Linux release 8.2 (Ootpa)
+Release:	8.2
+Codename:	Ootpa
+
+fpm --version
+Version:     0.1.6, alpha -- OS type
+Program:     fpm(1)
+Description: A Fortran package manager and build system
+Home Page:   https://github.com/fortran-lang/fpm
+License:     MIT
+OS Type:     Linux, filepath separator /
+```

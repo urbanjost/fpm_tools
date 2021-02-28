@@ -7272,7 +7272,11 @@ use fpm_strings, only : lower
     integer, parameter, public :: OS_FREEBSD = 6
 contains
     integer function get_os_type() result(r)
-        !! Determine the OS type
+    character(len=:),allocatable :: val
+    character(len=4096)          :: line
+    integer                      :: lun
+    integer                      :: ios
+        !! Determine the OS type, maybe.
         !! 
         !! Returns one of the integer values OS_UNKNOWN, OS_LINUX, OS_MACOS,
         !! OS_WINDOWS, OS_CYGWIN, OS_SOLARIS, OS_FREEBSD.
@@ -7281,12 +7285,13 @@ contains
         !! 
         !! If the file separator returned by separator() is "/" it is assumed
         !! it is not a plain MSWindows system so tests are made for Linux, Unix,
-        !! and CygWin environments.
+        !! Msys, Mingw and CygWin environments.
         !! 
         !! When the file separator is returned as "/" the first check is that the
         !! environment variable `OSTYPE` is compare with common names.  OSTYPE can
-        !! be exported from a bash(1) shell, but is not exported by default.
-        !! If this fails, a check for the existence of files that can be found on
+        !! be exported from a bash(1) shell, but is not exported by default. The
+        !! user of a bash shell could be required to do an "export OSTYPE".
+        !! A check for the existence of files that can be found on
         !! specific system types is tried.
         !! 
         !! for situations like Cygwin/MSYS2/Git Bash on Windows there are options
@@ -7294,14 +7299,30 @@ contains
         !! routine seems to be to determine the separator so using separator()
         !! to separate basically into OS_WINDOWS and .not.OS_WINDOWS at this point
         !! 
-        character(len=:),allocatable :: val
+        !! If you just assume you have a POSIX system with uname(3f) use
+        !! M_system::system_uname(3f) and this is a lot easier
+        !!
+        !! if you can read a process or want to make a scratch file, running 
+        !! "bash -c 'echo $OSTYPE'" would make a lot of sense.
+        !!
         r = OS_UNKNOWN
         FOUND: block
            if(separator().eq.'/')then
                ! Check environment variable `OSTYPE`.
                val=lower(get_env('OSTYPE'))
+               if( val.eq.'' .and. exists('/proc/version'))then
+                  open(newunit=lun,iostat=ios,file='/proc/version')
+                  if(ios.eq.0)then
+                     line=' '
+                     read(lun,'(a)',iostat=ios)line
+                     if(ios.eq.0)then
+                        val=trim(lower(line))
+                     endif
+                  endif
+               endif
                if(val.eq.'')then
                elseif (index(val, 'linux') > 0 )   then ; r = OS_LINUX   ! Linux
+               elseif (index(val, 'mingw') > 0 )   then ; r = OS_LINUX   ! Linux (for now, anyway)
                elseif (index(val, 'darwin') > 0 )  then ; r = OS_MACOS   ! macOS
                elseif (index(val, 'cygwin') > 0 )  then ; r = OS_CYGWIN  ! Cygwin
                elseif (index(val, 'sunos') > 0 )   then ; r = OS_SOLARIS ! Solaris, OpenIndiana, ...
@@ -7313,6 +7334,7 @@ contains
                ! look for specific files that probably indicate an OS
                if (exists('/etc/os-release')) then ;         r = OS_LINUX   ! Linux
                elseif (exists('/usr/bin/sw_vers')) then;     r = OS_MACOS   ! macOS 
+               elseif (exists('/usr/bin/cygstart')) then;    r = OS_CYGWIN  ! Cygwin
                elseif (exists('/bin/freebsd-version')) then; r = OS_FREEBSD ! FreeBSD
                endif
            elseif(separator().eq.'\')then
@@ -7320,9 +7342,11 @@ contains
               val=lower(get_env('OS'))
                if (index(val, 'windows_nt') > 0 ) then
                    r = OS_WINDOWS
+                   exit FOUND
                elseif (index(val, 'win') > 0 .or. index(val, 'msys') > 0) then
                ! Windows, and maybe MSYS, MSYS2, MinGW, Git Bash
                    r = OS_WINDOWS
+                   exit FOUND
                endif
                if(r.ne.OS_UNKNOWN) exit FOUND
            endif
@@ -7445,11 +7469,11 @@ function separator() result(sep)
 !!     character(len=1) :: sep
 !!
 !!##DESCRIPTION
-!!   First testing for the existence of "/." and "\.",  then if that fails
-!!   a list of variable names assumed to contain directory paths
-!!   {PATH|HOME|HOMEPATH} are examined first for a backslash, then a slash. 
-!!   Assuming basically a ULS or MSWindows system, and users can do weird 
-!!   things like put a backslash in a ULS path and break it.
+!!   First testing for the existence of "/.",  then if that fails a list
+!!   of variable names assumed to contain directory paths {PATH|HOME} are
+!!   examined first for a backslash, then a slash.  Assuming basically the
+!!   choice is a ULS or MSWindows system, and users can do weird things like
+!!   put a backslash in a ULS path and break it.
 !!
 !!   Therefore can be very system dependent. If the queries fail the
 !!   default returned is "/".
@@ -7486,11 +7510,8 @@ character(len=:),allocatable :: envnames(:)
     endif
     FOUND: block
     ! simple, but does not work with ifort
-    inquire(file='\.',exist=existing,iostat=ios,name=name)
-    if(existing.and.ios.eq.0)then
-        sep='\'
-        exit FOUND
-    endif
+    ! most MSWindows environments see to work with backslash even when
+    ! using POSIX filenames to do not rely on '\.'.
     inquire(file='/.',exist=existing,iostat=ios,name=name)
     if(existing.and.ios.eq.0)then
         sep='/'
@@ -7498,8 +7519,10 @@ character(len=:),allocatable :: envnames(:)
     endif
     ! check variables names common to many platforms that usually have a
     ! directory path in them although a ULS file can contain a backslash
-    ! and vice-versa (eg. "touch A\\B\\C").
-    envnames=[character(len=10) :: 'PATH', 'HOME','HOMEPATH']
+    ! and vice-versa (eg. "touch A\\B\\C"). Removed HOMEPATH because it
+    ! returned a name with backslash on CygWin, Mingw, WLS even when using
+    ! POSIX filenames in the environment.
+    envnames=[character(len=10) :: 'PATH', 'HOME']
     do i=1,size(envnames)
        if(index(get_env(envnames(i)),'\').ne.0)then
           sep='\'
@@ -7512,7 +7535,6 @@ character(len=:),allocatable :: envnames(:)
 
     write(*,*)'<WARNING>unknown system directory path separator'
     sep='\'
-
     endblock FOUND
     !*!IFORT BUG:sep_cache=sep
     isep=ichar(sep)
