@@ -1,0 +1,5 @@
+#!/bin/bash
+#git clone https://github.com/fortran-lang/fpm/
+set +x
+git clone https://github.com/urbanjost/$*
+
