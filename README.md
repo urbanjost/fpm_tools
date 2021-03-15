@@ -1,4 +1,5 @@
 # fpm_tools
+![parse](docs/images/fpm_logo.gif)
 
 This is a scratch directory for testing `fpm` and will generally be
 broken. **Nothing to see here**.
