@@ -1,6 +1,62 @@
 <html> 
 <head> 
 <title> </title>
+  <style>
+  <![CDATA[
+
+  px {font-family: "Lucida Console", Monaco }
+  p { font-size:100%; line-height:1.1em; }
+  body {xfont-style: sans-serif}
+  body {
+  color:#333; font-family:Verdana, Arial, Helvetica, sans-serif; font-size:1em; line-height:1.3em; }
+  a:visited { color:#666; }
+  h1,h2,h3,h4,h5,h6 { color:#333; font-family:georgia, verdana, sans-serif; }
+  h1 { font-size:150%; page-break-before:auto;background-color: #aaaaff}
+  h2 { font-size:143%;color:teal; }
+  h3 { font-size:134%;color:blue; }
+  h4 { font-size:120%;color:gray; }
+  img { max-width: 55em}
+  p{ padding: 0;margin:0; }
+  p{ padding-right:1.4em; }
+  p{ padding-bottom:1em; }
+  p{ padding-top:1em; }
+  p{ whitespace: pre-wrap; }
+  h5,h6 { font-size:100% }
+  a.nav,a:link.nav, a:visited.nav { background-color:#FFF; color:#000; }
+  XXtable { border:double #000; border-collapse:collapse; }
+  XXtable { border-collapse:collapse; }
+  XXtd { border:thin solid #888; }
+  XXtd { border:none; }
+  li { margin-bottom:0.5em; }
+  blockquote { display:block; font-size:100%; line-height:1.1em; margin:0 0 1.5em; padding:0 2.5em; }
+  pre { background-color:#DDD; font-size:100%; overflow:auto; padding:1em; }
+  a,li span { color:#000; }
+  a:hover, a.nav:hover, a:hover math { background-color:#000; color:#FFF; }
+  #Container { margin:0 10px; text-align:center; background-color: #BBB}
+  #Content { border-top:none; margin:auto; padding:0.3em; text-align:left; width:100%; max-width:55em; background:#FFF}
+  span.webName { font-size:.5em; }
+  textarea#content { font-size: 1em; line-height: 1.125; }
+  h1#pageName { line-height:1em; margin:0.2em 0 0.2em 0; padding:0; }
+  .property { color:#666; font-size:100%; }
+  a.existingWikiWord[title]{ //border: 1px dashed #BBB; }
+  .byline { color:#666; font-size:1.0em; font-style:italic; margin-bottom:1em; padding-top:1px; } 
+  ]]>
+  </style>
+  <style type="text/css">
+  /*<![CDATA[*/
+  body {
+  background-color: #F0F0F0;
+  color: #000000;
+  }
+  :link { color: #0000FF }
+  :visited { color: #C000C0 }
+  :active { color: #FF0000 }
+  span.c4 {font-size: 80%}
+  td.c3 {font-style: italic}
+  td.c2 {font-weight: bold}
+  div.c1 {text-align: center}
+  /*]]>*/
+  </style>
 <style> 
 px {font-family: "Lucida Console", Monaco }
 p { font-size:100%; line-height:1.1em; }
@@ -40,278 +96,263 @@ a.existingWikiWord[title]{ //border: 1px dashed #BBB; }
 .byline { color:#666; font-size:1.0em; font-style:italic; margin-bottom:1em; padding-top:1px; } 
 </style> 
 </head>
-<BODY bgcolor=#F0F0F0 text=#000000 link=#0000ff vlink=#C000C0 alink=#ff0000><A NAME=top></A>
-<h5><a href="download.html">[UP]</a></h5>
-<div id="Container">
-<div id="Content">
-<CENTER>
-<H1><HR><I>Manual Reference Pages &nbsp;-&nbsp;</I><NOBR>untitled ()</NOBR><HR></H1>
-</CENTER>
-<A name=52>
-
-     <H3>NAME</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>fpm</B>(1) - A Fortran package manager and build system
-<P>
-</BLOCKQUOTE>
-<A name=57>
-
-     <H3>SYNOPSIS</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>fpm</B> <I>SUBCOMMAND</I> [SUBCOMMAND_OPTIONS]
-<P>
-<B>fpm</B> <B>--help</B>|<B>--version</B>|<B>--list</B>
-</BLOCKQUOTE>
-<A name=54>
-
-     <H3>DESCRIPTION</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>fpm</B>(1) is a package manager that helps you create Fortran projects
-from source -- it automatically determines dependencies!
-<P>
-Most significantly <B>fpm</B>(1) lets you draw upon other <B>fpm</B>(1) packages
-in distributed <B>git</B>(1) repositories as if the packages were a basic
-part of your default programming environment, as well as letting
-you share your projects with others in a similar manner.
-<P>
-All output goes into the directory "build/" which can generally be
-removed and rebuilt if required. Note that if external packages are
-being used you need network connectivity to rebuild from scratch.
-</BLOCKQUOTE>
-<A name=3>
-
-     <H3>SUBCOMMANDS</H3>
-
-</A>
-<BLOCKQUOTE>
-Valid <B>fpm</B>(1) subcommands are:
-<TABLE cellpadding=3><!-- tsb: Valid <B>fpm</B>(1) subcommands are:
+<body>
+  <a name="top" id="top"></a>
+  <h5><a href="index.html">[UP]</a></h5>
+  <div id="Container">
+    <div id="Content">
+      <div class="c1">
+        <hr />
+        <h1><i>Manual Reference Pages -</i> fpm (1)</h1>
+        <hr />
+      </div><a name="52" id="52">
+      <h3>NAME</h3></a>
+      <blockquote>
+        <b>fpm</b>(1) - A Fortran package manager and build system
+      </blockquote><a name="contents" id="contents"></a>
+      <a name="57" id="57">
+      <h3>SYNOPSIS</h3></a>
+      <blockquote>
+        <b>fpm</b> <i>SUBCOMMAND</i> [SUBCOMMAND_OPTIONS]
+        <p><b>fpm</b> <b>--help</b>|<b>--version</b>|<b>--list</b></p>
+      </blockquote><a name="54" id="54">
+      <h3>DESCRIPTION</h3></a>
+      <blockquote>
+        <b>fpm</b>(1) is a package manager that helps you create Fortran projects from source -- it automatically determines dependencies!
+        <p>Most significantly <b>fpm</b>(1) lets you draw upon other <b>fpm</b>(1) packages in distributed <b>git</b>(1) repositories as if the packages
+        were a basic part of your default programming environment, as well as letting you share your projects with others in a similar manner.</p>
+        <p>All output goes into the directory "build/" which can generally be removed and rebuilt if required. Note that if external packages are being used
+        you need network connectivity to rebuild from scratch.</p>
+      </blockquote><a name="3" id="3">
+      <h3>SUBCOMMANDS</h3></a>
+      <blockquote>
+        Valid <b>fpm</b>(1) subcommands are:
+        <table cellpadding="3">
+          <!-- tsb: Valid <B>fpm</B>(1) subcommands are:
  -->
-<TR></TR><TR></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-build Compile the packages into the "build/" directory.
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-new Create a new Fortran package directory with sample files.
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-update Update the project dependencies.
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-run Run the local package binaries. defaults to all binaries for
-that release.
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-test Run the tests.
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-help Alternate to the <B>--help</B> switch for displaying help text.
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-list Display brief descriptions of all subcommands.
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-install Install project
-</TD></TR>
-<TR></TR></TABLE>Their syntax is
-<P>
-<PRE>
-    build [--release] [--list] [--compiler COMPILER_NAME]
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td><b>build</b> -- Compile the packages into the "build/" directory.</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td><b>new</b> -- Create a new Fortran package directory with sample files.</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td><b>update</b> -- Update the project dependencies.</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td><b>run</b> -- Run the local package binaries. defaults to all binaries for that release.</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td><b>test</b> -- Run the tests.</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td><b>help</b> -- Alternate method for displaying subcommand help.</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td><b>list</b> -- Display brief descriptions of all subcommands.</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td><b>install</b> -- Install project</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>Their syntax is
+        <pre>
+    build [--profile PROF] [--flag FFLAGS] [--list] [--compiler COMPILER_NAME]
     new NAME [[--lib|--src] [--app] [--test] [--example]]|
-              [--full|--bare][--backfill]
+             [--full|--bare][--backfill]
     update [NAME(s)] [--fetch-only] [--clean]
-    run [[--target] NAME(s)|--all] [--release] [--list] [--example]
-        [--runner "CMD"] [--compiler COMPILER_NAME] [-- ARGS]
-    test [[--target] NAME(s)] [--release] [--list]
+    run [[--target] NAME(s)] [--profile PROF] [--flag FFLAGS] [--list] [--exampl
+        [--all] [--runner "CMD"] [--compiler COMPILER_NAME] [-- ARGS]
+    test [[--target] NAME(s)] [--profile PROF] [--flag FFLAGS] [--list]
          [--runner "CMD"] [--compiler COMPILER_NAME] [-- ARGS]
     help [NAME(s)]
     list [--list]
-    install [--release] [--no-rebuild] [--prefix PATH] [options]
-<P>
-</PRE>
-</BLOCKQUOTE>
-<A name=4>
-
-     <H3>SUBCOMMAND OPTIONS</H3>
-
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD colspan=2>
-<B></B><B>--release</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-Builds or runs in release mode (versus debug mode). <B>fpm</B>(1)
-Defaults to using common compiler debug flags and building
-in "build/*_debug/". When this flag is present build
-output goes into "build/*_release/" and common compiler
-optimization flags are used.
-</TD></TR>
-<TR valign=top><TD width=6% nowrap>
-<B></B><B>--list</B> </TD><TD valign=bottom>
-List candidates instead of building or running them. On
-the <B>fpm</B>(1) command this shows a brief list of subcommands.
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--runner</B> CMD </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-Provides a command to prefix program execution paths.
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--compiler</B> COMPILER_NAME </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-Compiler name. The environment variable
-FPM_COMPILER sets the default.
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B>-- ARGS</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-Arguments to pass to executables.
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<A name=5>
-
-     <H3>VALID FOR ALL SUBCOMMANDS</H3>
-
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD width=6% nowrap>
-<B></B><B>--help</B> </TD><TD valign=bottom>
-Show help text and exit
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--verbose</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-Display additional information when available
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--version</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-Show version information and exit.
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<A name=56>
-
-     <H3>EXAMPLES</H3>
-
-</A>
-<BLOCKQUOTE>
-sample commands:
-<P>
-<PRE>
+    install [--profile PROF] [--flag FFLAGS] [--no-rebuild] [--prefix PATH] [opt
+<br />
+</pre>
+      </blockquote><a name="4" id="4">
+      <h3>SUBCOMMAND OPTIONS</h3></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td colspan="2"><b>--profile</b> PROF</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>selects the compilation profile for the build. Currently available profiles are "release" for high optimization and "debug" for full debug
+            options. If <b>--flag</b> is not specified the "debug" flags are the default.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--flag</td>
+            <td valign="bottom">
+              FFLAGS selects compile arguments for the build. These are added to the profile options if <b>--profile</b> is specified, else these options
+              override the defaults. Note object and .mod directory locations are always built in.
+              <table width="100%" cellpadding="3">
+                <!-- tsb: FFLAGS    selects compile arguments for the build. These are
+ -->
+                <tr>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td></td>
+                </tr>
+                <tr valign="top">
+                  <td class="c2" width="6%" nowrap="nowrap">--list</td>
+                  <td valign="bottom">List candidates instead of building or running them. On the <b>fpm</b>(1) command this shows a brief list of
+                  subcommands.</td>
+                </tr>
+                <tr valign="top">
+                  <td colspan="2"><b>--runner</b> CMD</td>
+                </tr>
+                <tr valign="top">
+                  <td width="6%"></td>
+                  <td>Provides a command to prefix program execution paths.</td>
+                </tr>
+                <tr valign="top">
+                  <td colspan="2"><b>--compiler</b> COMPILER_NAME</td>
+                </tr>
+                <tr valign="top">
+                  <td width="6%"></td>
+                  <td>Compiler name. The environment variable FPM_COMPILER sets the default.</td>
+                </tr>
+                <tr valign="top">
+                  <td class="c2" colspan="2">-- ARGS</td>
+                </tr>
+                <tr valign="top">
+                  <td width="6%"></td>
+                  <td>Arguments to pass to executables.</td>
+                </tr>
+                <tr>
+                  <td></td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote><a name="5" id="5">
+      <h3>VALID FOR ALL SUBCOMMANDS</h3></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--help</td>
+            <td valign="bottom">Show help text and exit</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" colspan="2">--verbose</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>Display additional information when available</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" colspan="2">--version</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>Show version information and exit.</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote><a name="56" id="56">
+      <h3>EXAMPLES</h3></a>
+      <blockquote>
+        sample commands:
+        <pre>
     fpm new mypackage --app --test
     fpm build
     fpm test
     fpm run
     fpm run --example
     fpm new --help
-    fpm run myprogram --release -- -x 10 -y 20 --title "my title"
+    fpm run myprogram --profile release -- -x 10 -y 20 --title "my title"
     fpm install --prefix ~/.local
-<P>
-</PRE>
-</BLOCKQUOTE>
-<A name=46>
-
-     <H3>SEE ALSO</H3>
-
-</A>
-<BLOCKQUOTE>
-<P>
-<TABLE cellpadding=3>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-The <B>fpm</B>(1) home page is at https://github.com/fortran-lang/<B>fpm</B>
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-Registered <B>fpm</B>(1) packages are at https://fortran-lang.org/packages
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-The <B>fpm</B>(1) TOML file format is described at
-https://github.com/fortran-lang/<B>fpm</B>/blob/master/manifest-reference.md
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<A name=52>
-
-     <H3>NAME</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>new</B>(1) - the <B>fpm</B>(1) subcommand to initialize a new project
-</BLOCKQUOTE>
-<A name=53>
-
-     <H3>SYNOPSIS</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>fpm</B> <I>new</I> <I><A HREF=#52>NAME</A></I> [[-<B>-lib</B>|<B>--src</B>] [-<B>-app</B>] [-<B>-test</B>] [-<B>-example</B>]]|
-[-<B>-full</B>|<B>--bare</B>][-<B>-backfill</B>]
-<B>fpm</B> <I>new</I> <B>--help</B>|<B>--version</B>
-</BLOCKQUOTE>
-<A name=54>
-
-     <H3>DESCRIPTION</H3>
-
-</A>
-<BLOCKQUOTE>
-"<B>fpm</B> <I>new</I>" creates and populates a <I>new</I> programming project directory.
-It
-<BLOCKQUOTE>
-<TABLE cellpadding=3><!-- tsb: "<B>fpm</B> <I>new</I>" creates and populates a <I>new</I> programming project directory.
+<br />
+</pre>
+      </blockquote><a name="46" id="46">
+      <h3>SEE ALSO</h3></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>The <b>fpm</b>(1) home page is at https://github.com/fortran-lang/<b>fpm</b></td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>Registered <b>fpm</b>(1) packages are at https://fortran-lang.org/packages</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>The <b>fpm</b>(1) TOML file format is described at https://github.com/fortran-lang/<b>fpm</b>/blob/master/manifest-reference.md</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote><a name="52" id="52">
+      <h3>NAME</h3></a>
+      <blockquote>
+        <b>new</b>(1) - the <b>fpm</b>(1) subcommand to initialize a new project
+      </blockquote><a name="53" id="53">
+      <h3>SYNOPSIS</h3></a>
+      <blockquote>
+        <b>fpm</b> <i>new</i> <i><a href="#52">NAME</a></i> [[-<b>-lib</b>|<b>--src</b>] [-<b>-app</b>] [-<b>-test</b>] [-<b>-example</b>]]|
+        [-<b>-full</b>|<b>--bare</b>][-<b>-backfill</b>] <b>fpm</b> <i>new</i> <b>--help</b>|<b>--version</b>
+      </blockquote><a name="54" id="54">
+      <h3>DESCRIPTION</h3></a>
+      <blockquote>
+        "<b>fpm</b> <i>new</i>" creates and populates a <i>new</i> programming project directory. It
+        <blockquote>
+          <table cellpadding="3">
+            <!-- tsb: "<B>fpm</B> <I>new</I>" creates and populates a <I>new</I> programming project directory.
  -->
-<TR></TR><TR></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-creates a directory with the specified name
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-runs the command "git init" in that directory
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-populates the directory with the default project directories
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-adds sample Fortran source files
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-adds a ".gitignore" file for ignoring the build/ directory
-(where <B>fpm</B>-generated output will be placed)
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<P>
-The default file structure (that will be automatically scanned) is
-<P>
-<PRE>
+            <tr>
+              <td></td>
+            </tr>
+            <tr>
+              <td></td>
+            </tr>
+            <tr valign="top">
+              <td width="3%">o</td>
+              <td>creates a directory with the specified name</td>
+            </tr>
+            <tr valign="top">
+              <td width="3%">o</td>
+              <td>runs the command "git init" in that directory</td>
+            </tr>
+            <tr valign="top">
+              <td width="3%">o</td>
+              <td>populates the directory with the default project directories</td>
+            </tr>
+            <tr valign="top">
+              <td width="3%">o</td>
+              <td>adds sample Fortran source files</td>
+            </tr>
+            <tr valign="top">
+              <td width="3%">o</td>
+              <td>adds a ".gitignore" file for ignoring the build/ directory (where <b>fpm</b>-generated output will be placed)</td>
+            </tr>
+            <tr>
+              <td></td>
+            </tr>
+          </table>
+        </blockquote>
+        <p>The default file structure (that will be automatically scanned) is</p>
+        <pre>
      NAME/
        fpm.toml
        .gitignore
@@ -323,955 +364,903 @@ The default file structure (that will be automatically scanned) is
            check.f90
        example/
            demo.f90
-<P>
-</PRE>
-Using this file structure is highly encouraged, particularly for
-small packages primarily intended to be used as dependencies.
-<P>
-If you find this restrictive and need to customize the package
-structure you will find using the <B>--full</B> switch creates a
-heavily annotated manifest file with references to documentation
-to aid in constructing complex package structures.
-<P>
-Remember to update the information in the sample "fpm.toml"
-file with your name and e-mail address.
-</BLOCKQUOTE>
-<A name=55>
-
-     <H3>OPTIONS</H3>
-
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD width=6% nowrap>
-<B></B><I>NAME</I> </TD><TD valign=bottom>
-the name of the project directory to create. The name
-must be made of up to 63 ASCII letters, digits, underscores,
-or hyphens, and start with a letter.
-</TD></TR>
-<TR><TD colspan=2>
-The default is to create the src/, app/, and test/ directories.
-If any of the following options are specified then only the
-selected subdirectories are generated:
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--lib</B>,<B>--src</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-create directory src/ and a placeholder module
-named "NAME.f90" for use with subcommand "build".
-</TD></TR>
-<TR valign=top><TD width=6% nowrap>
-<B></B><B>--app</B> </TD><TD valign=bottom>
-create directory app/ and a placeholder main
-program for use with subcommand "run".
-</TD></TR>
-<TR valign=top><TD width=6% nowrap>
-<B></B><B>--test</B> </TD><TD valign=bottom>
-create directory test/ and a placeholder program
-for use with the subcommand "test". Note that sans
-"<B>--lib</B>" it really does not have anything to test.
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--example</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-create directory example/ and a placeholder program
-for use with the subcommand "run <B>--example</B>".
-It is only created by default if "<B>--full</B> is" specified.
-</TD></TR>
-<TR><TD colspan=2>
-So the default is equivalent to
-</TD></TR>
-<TR><TD colspan=2>
-<PRE>
+<br />
+</pre>Using this file structure is highly encouraged, particularly for small packages primarily intended to be used as dependencies.
+        <p>If you find this restrictive and need to customize the package structure you will find using the <b>--full</b> switch creates a heavily annotated
+        manifest file with references to documentation to aid in constructing complex package structures.</p>
+        <p>Remember to update the information in the sample "fpm.toml" file with your name and e-mail address.</p>
+      </blockquote><a name="55" id="55">
+      <h3>OPTIONS</h3></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td class="c3" width="6%" nowrap="nowrap">NAME</td>
+            <td valign="bottom">the name of the project directory to create. The name must be made of up to 63 ASCII letters, digits, underscores, or
+            hyphens, and start with a letter.</td>
+          </tr>
+          <tr>
+            <td colspan="2">The default is to create the src/, app/, and test/ directories. If any of the following options are specified then only the
+            selected subdirectories are generated:</td>
+          </tr>
+          <tr valign="top">
+            <td colspan="2"><b>--lib</b>,<b>--src</b></td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>create directory src/ and a placeholder module named "NAME.f90" for use with subcommand "build".</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--app</td>
+            <td valign="bottom">create directory app/ and a placeholder main program for use with subcommand "run".</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--test</td>
+            <td valign="bottom">create directory test/ and a placeholder program for use with the subcommand "test". Note that sans "<b>--lib</b>" it really
+            does not have anything to test.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" colspan="2">--example</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>create directory example/ and a placeholder program for use with the subcommand "run <b>--example</b>". It is only created by default if
+            "<b>--full</b> is" specified.</td>
+          </tr>
+          <tr>
+            <td colspan="2">So the default is equivalent to</td>
+          </tr>
+          <tr>
+            <td colspan="2">
+              <pre>
     fpm NAME --lib --app --test
-<P>
-</PRE>
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--backfill</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-By default the directory must not exist. If this
-option is present the directory may pre-exist and
-only subdirectories and files that do not
-already exist will be created. For example, if you
-previously entered "<B>fpm</B> <I>new</I> myname <B>--lib</B>" entering
-"<B>fpm</B> <I>new</I> myname <B>-full</B> <B>--backfill</B>" will create any missing
-app/, example/, and test/ directories and programs.
-</TD></TR>
-<TR valign=top><TD width=6% nowrap>
-<B></B><B>--full</B> </TD><TD valign=bottom>
-By default a minimal manifest file ("fpm.toml") is
-created that depends on auto-discovery. With this
-option a much more extensive manifest sample is written
-and the example/ directory is created and populated.
-It is designed to facilitate creating projects that
-depend extensively on non-default build options.
-</TD></TR>
-<TR valign=top><TD width=6% nowrap>
-<B></B><B>--bare</B> </TD><TD valign=bottom>
-A minimal manifest file ("fpm.toml") is created and
-a ".gitignore" and "README.md" file is created but no
-directories or sample Fortran is generated.
-</TD></TR>
-<TR valign=top><TD width=6% nowrap>
-<B></B><B>--help</B> </TD><TD valign=bottom>
-print this help and exit
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--version</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-print program version information and exit
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<A name=56>
-
-     <H3>EXAMPLES</H3>
-
-</A>
-<BLOCKQUOTE>
-Sample use
-<P>
-<PRE>
+<br />
+</pre>
+            </td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" colspan="2">--backfill</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>By default the directory must not exist. If this option is present the directory may pre-exist and only subdirectories and files that do not
+            already exist will be created. For example, if you previously entered "<b>fpm</b> <i>new</i> myname <b>--lib</b>" entering "<b>fpm</b>
+            <i>new</i> myname <b>-full</b> <b>--backfill</b>" will create any missing app/, example/, and test/ directories and programs.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--full</td>
+            <td valign="bottom">By default a minimal manifest file ("fpm.toml") is created that depends on auto-discovery. With this option a much more
+            extensive manifest sample is written and the example/ directory is created and populated. It is designed to facilitate creating projects that
+            depend extensively on non-default build options.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--bare</td>
+            <td valign="bottom">A minimal manifest file ("fpm.toml") is created and a ".gitignore" and "README.md" file is created but no directories or
+            sample Fortran is generated.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--help</td>
+            <td valign="bottom">print this help and exit</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" colspan="2">--version</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>print program version information and exit</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote><a name="56" id="56">
+      <h3>EXAMPLES</h3></a>
+      <blockquote>
+        Sample use
+        <pre>
    fpm new myproject  # create new project directory and seed it
    cd myproject       # Enter the new directory
    # and run commands such as
    fpm build
-   fpm run            # run example application program(s)
+   fpm run            # run lone example application program
    fpm test           # run example test program(s)
-   fpm run --example  # run example program(s)
-<P>
+   fpm run --example  # run lone example program
+<br />
    fpm new A --full # create example/ and an annotated fpm.toml as well
    fpm new A --bare # create no directories
    create any missing files in current directory
-   fpm new &#145;pwd&#145; --full --backfill
-<P>
-</PRE>
-</BLOCKQUOTE>
-<A name=52>
-
-     <H3>NAME</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>build</B>(1) - the <B>fpm</B>(1) subcommand to build a project
-<P>
-</BLOCKQUOTE>
-<A name=53>
-
-     <H3>SYNOPSIS</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>fpm</B> <I>build</I> [-<B>-release</B>][-<B>-compiler</B> <I>COMPILER_NAME</I>] [-list]
-<P>
-<B>fpm</B> <I>build</I> <B>--help</B>|<B>--version</B>
-</BLOCKQUOTE>
-<A name=54>
-
-     <H3>DESCRIPTION</H3>
-
-</A>
-<BLOCKQUOTE>
-The "<B>fpm</B> <I>build</I>" command
-<BLOCKQUOTE>
-<TABLE cellpadding=3><!-- tsb: The "<B>fpm</B> <I>build</I>" command
+   fpm new 'pwd' --full --backfill
+<br />
+</pre>
+      </blockquote><a name="52" id="52">
+      <h3>NAME</h3></a>
+      <blockquote>
+        <b>build</b>(1) - the <b>fpm</b>(1) subcommand to build a project
+      </blockquote><a name="53" id="53">
+      <h3>SYNOPSIS</h3></a>
+      <blockquote>
+        <b>fpm</b> <i>build</i> [-<b>-profile</b> <i>PROF</i>] [-<b>-flags</b> <i>FFLAGS</i>] [-<b>-compiler</b> <i>COMPILER_NAME</i>] [-list]
+        <p><b>fpm</b> <i>build</i> <b>--help</b>|<b>--version</b></p>
+      </blockquote><a name="54" id="54">
+      <h3>DESCRIPTION</h3></a>
+      <blockquote>
+        The "<b>fpm</b> <i>build</i>" command
+        <blockquote>
+          <table cellpadding="3">
+            <!-- tsb: The "<B>fpm</B> <I>build</I>" command
  -->
-<TR></TR><TR></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-Fetches any dependencies
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-Scans your sources
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-Builds them in the proper order
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<P>
-The Fortran source files are assumed by default to be in
-<BLOCKQUOTE>
-<TABLE cellpadding=3><!-- tsb: The Fortran source files are assumed by default to be in
+            <tr>
+              <td></td>
+            </tr>
+            <tr>
+              <td></td>
+            </tr>
+            <tr valign="top">
+              <td width="3%">o</td>
+              <td>Fetches any dependencies</td>
+            </tr>
+            <tr valign="top">
+              <td width="3%">o</td>
+              <td>Scans your sources</td>
+            </tr>
+            <tr valign="top">
+              <td width="3%">o</td>
+              <td>Builds them in the proper order</td>
+            </tr>
+            <tr>
+              <td></td>
+            </tr>
+          </table>
+        </blockquote>
+        <p>The Fortran source files are assumed by default to be in</p>
+        <blockquote>
+          <table cellpadding="3">
+            <!-- tsb: The Fortran source files are assumed by default to be in
  -->
-<TR></TR><TR></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-src/ for modules and procedure source
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-app/ main <B>program</B>(s) for applications
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-test/ main <B>program</B>(s) and support files for project tests
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-example/ main <B>program</B>(s) for example programs
-Changed or <I>new</I> files found are rebuilt. The results are placed in
-the <I>build</I>/ directory.
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<P>
-Non-default pathnames and remote dependencies are used if
-specified in the "fpm.toml" file.
-</BLOCKQUOTE>
-<A name=55>
-
-     <H3>OPTIONS</H3>
-
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD colspan=2>
-<B></B><B>--release</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-<I>build</I> in <I>build</I>/*_release instead of <I>build</I>/*_debug with
-high optimization instead of full debug options.
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--compiler</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-<I>COMPILER_NAME</I>  Specify a compiler name. The default is
-"gfortran" unless set by the environment
-variable FPM_COMPILER.
-</TD></TR>
-<TR valign=top><TD width=6% nowrap>
-<B></B><B>--list</B> </TD><TD valign=bottom>
-list candidates instead of building or running them
-<B>--show-model</B> show the model and exit (do not <I>build</I>)
-</TD></TR>
-<TR valign=top><TD width=6% nowrap>
-<B></B><B>--help</B> </TD><TD valign=bottom>
-print this help and exit
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--version</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-print program version information and exit
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<A name=56>
-
-     <H3>EXAMPLES</H3>
-
-</A>
-<BLOCKQUOTE>
-Sample commands:
-<P>
-<PRE>
-  fpm build           # build with debug options
-  fpm build --release # build with high optimization
-<P>
-</PRE>
-</BLOCKQUOTE>
-<A name=52>
-
-     <H3>NAME</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>run</B>(1) - the <B>fpm</B>(1) subcommand to run project applications
-<P>
-</BLOCKQUOTE>
-<A name=53>
-
-     <H3>SYNOPSIS</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>fpm</B> run [[-<B>-target</B>] <I><A HREF=#52>NAME</A></I>(s)|<B>-all</B>][-<B>-release</B>][-<B>-compiler</B> <I>COMPILER_NAME</I>]
-[-<B>-runner</B> "CMD"] [-<B>-example</B>] [-<B>-list</B>][-- ARGS]
-<P>
-<B>fpm</B> run <B>--help</B>|<B>--version</B>
-</BLOCKQUOTE>
-<A name=54>
-
-     <H3>DESCRIPTION</H3>
-
-</A>
-<BLOCKQUOTE>
-Run the applications in your <B>fpm</B>(1) package. By default applications
-in /app or specified as "executable" in your "fpm.toml" manifest are
-used. Alternatively demonstration programs in example/ or specified in
-the "example" section in "fpm.toml" can be executed. The applications
-are automatically rebuilt before being run if they are out of date.
-</BLOCKQUOTE>
-<A name=55>
-
-     <H3>OPTIONS</H3>
-
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD colspan=2>
-<B></B><B>--target</B> <I>NAME</I>(s) </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-list of specific application names to execute.
-No name is required if only one application exists.
-If no name is supplied and more than one candidate
-exists or a name has no match a list is produced
-and <B>fpm</B>(1) exits.
-Simple "globbing" is supported where "?" represents
-any single character and "*" represents any string.
-Therefore a quoted asterisk &#146;*&#146; runs all programs.
-</TD></TR>
-<TR valign=top><TD width=6% nowrap>
-<B></B><B>--all</B> </TD><TD valign=bottom>
-An alias for "<B>--target</B> &#146;*&#146;". All targets are selected.
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--example</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-Run example programs instead of applications.
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--release</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-selects the optimized <I>build</I> instead of the debug <I>build</I>.
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--compiler</B> <I>COMPILER_NAME</I> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-Specify a compiler name. The default is
-"gfortran" unless set by the environment
-variable FPM_COMPILER.
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--runner</B> CMD </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-A command to prefix the program execution paths with.
-see "<B>fpm</B> help runner" for further details.
-</TD></TR>
-<TR valign=top><TD width=6% nowrap>
-<B></B><B>--list</B> </TD><TD valign=bottom>
-list pathname of candidates instead of running them. Note
-out-of-date candidates will still be rebuilt before being
-listed.
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B>-- ARGS</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-optional arguments to pass to the <B>program</B>(s). The same
-arguments are passed to all program names specified.
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<A name=56>
-
-     <H3>EXAMPLES</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>fpm</B>(1) - run project applications:
-<P>
-<PRE>
-  # run all default programs in /app or as specified in "fpm.toml"
-  fpm run --all
-<P>
+            <tr>
+              <td></td>
+            </tr>
+            <tr>
+              <td></td>
+            </tr>
+            <tr valign="top">
+              <td width="3%">o</td>
+              <td>src/ for modules and procedure source</td>
+            </tr>
+            <tr valign="top">
+              <td width="3%">o</td>
+              <td>app/ main <b>program</b>(s) for applications</td>
+            </tr>
+            <tr valign="top">
+              <td width="3%">o</td>
+              <td>test/ main <b>program</b>(s) and support files for project tests</td>
+            </tr>
+            <tr valign="top">
+              <td width="3%">o</td>
+              <td>example/ main <b>program</b>(s) for example programs Changed or <i>new</i> files found are rebuilt. The results are placed in the
+              <i>build</i>/ directory.</td>
+            </tr>
+            <tr>
+              <td></td>
+            </tr>
+          </table>
+        </blockquote>
+        <p>Non-default pathnames and remote dependencies are used if specified in the "fpm.toml" file.</p>
+      </blockquote><a name="55" id="55">
+      <h3>OPTIONS</h3></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td colspan="2"><b>--profile</b> <i>PROF</i></td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>selects the compilation profile for the <i>build</i>. Currently available profiles are "release" for high optimization and "debug" for full
+            debug options. If <b>--flag</b> is not specified the "debug" flags are the default.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--flag</td>
+            <td valign="bottom"><i>FFLAGS</i> selects compile arguments for the <i>build</i>. These are added to the profile options if <b>--profile</b> is
+            specified, else these options override the defaults. Note object and .mod directory locations are always built in.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" colspan="2">--compiler</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td><i>COMPILER_NAME</i> Specify a compiler name. The default is "gfortran" unless set by the environment variable FPM_COMPILER.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--list</td>
+            <td valign="bottom">list candidates instead of building or running them <b>--show-model</b> show the model and exit (do not <i>build</i>)</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--help</td>
+            <td valign="bottom">print this help and exit</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" colspan="2">--version</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>print program version information and exit</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote><a name="56" id="56">
+      <h3>EXAMPLES</h3></a>
+      <blockquote>
+        Sample commands:
+        <pre>
+  fpm build                   # build with debug options
+  fpm build --profile release # build with high optimization
+<br />
+</pre>
+      </blockquote><a name="52" id="52">
+      <h3>NAME</h3></a>
+      <blockquote>
+        <b>run</b>(1) - the <b>fpm</b>(1) subcommand to run project applications
+      </blockquote><a name="53" id="53">
+      <h3>SYNOPSIS</h3></a>
+      <blockquote>
+        <b>fpm</b> run [[-<b>-target</b>] <i><a href="#52">NAME</a></i>(<i>s</i>) [-<b>-profile</b> <i>PROF</i>] [-<b>-flag</b> <i>FFLAGS</i>]
+        [-<b>-compiler</b> <i>COMPILER_NAME</i>] [-<b>-runner</b> "CMD"] [-<b>-example</b>] [-<b>-list</b>] [-<b>-all</b>] [-- ARGS]
+        <p><b>fpm</b> run <b>--help</b>|<b>--version</b></p>
+      </blockquote><a name="54" id="54">
+      <h3>DESCRIPTION</h3></a>
+      <blockquote>
+        Run the applications in your <b>fpm</b>(1) package. By default applications in /app or specified as "executable" in your "fpm.toml" manifest are
+        used. Alternatively demonstration programs in example/ or specified in the "example" section in "fpm.toml" can be executed. The applications are
+        automatically rebuilt before being run if they are out of date.
+      </blockquote><a name="55" id="55">
+      <h3>OPTIONS</h3></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td colspan="2"><b>--target</b> <i>NAME</i>(<i>s</i>)</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>
+              list of application names to execute. No name is required if only one target exists. If no name is supplied and more than one candidate exists
+              or a name has no match a list is produced and <b>fpm</b>(1) exits.
+              <p>Basic "globbing" is supported where "?" represents any single character and "*" represents any string. Note The glob string normally needs
+              quoted to the special characters from shell expansion.</p>
+            </td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--all</td>
+            <td valign="bottom">Run all examples or applications. An alias for <b>--target</b> '*'.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" colspan="2">--example</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>Run example programs instead of applications.</td>
+          </tr>
+          <tr valign="top">
+            <td colspan="2"><b>--profile</b> <i>PROF</i></td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>selects the compilation profile for the <i>build</i>. Currently available profiles are "release" for high optimization and "debug" for full
+            debug options. If <b>--flag</b> is not specified the "debug" flags are the default.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--flag</td>
+            <td valign="bottom"><i>FFLAGS</i> selects compile arguments for the <i>build</i>. These are added to the profile options if <b>--profile</b> is
+            specified, else these options override the defaults. Note object and .mod directory locations are always built in.</td>
+          </tr>
+          <tr valign="top">
+            <td colspan="2"><b>--compiler</b> <i>COMPILER_NAME</i></td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>Specify a compiler name. The default is "gfortran" unless set by the environment variable FPM_COMPILER.</td>
+          </tr>
+          <tr valign="top">
+            <td colspan="2"><b>--runner</b> CMD</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>A command to prefix the program execution paths with. see "<b>fpm</b> help runner" for further details.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--list</td>
+            <td valign="bottom">list pathname of candidates instead of running them. Note out-of-date candidates will still be rebuilt before being
+            listed.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" colspan="2">-- ARGS</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>optional arguments to pass to the <b>program</b>(<i>s</i>). The same arguments are passed to all program names specified.</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote><a name="56" id="56">
+      <h3>EXAMPLES</h3></a>
+      <blockquote>
+        <b>fpm</b>(1) - run or display project applications:
+        <pre>
+  fpm run        # run a target when only one exists or list targets
+  fpm run --list # list all targets, running nothing.
+  fpm run --all  # run all targets, no matter how many there are.
+<br />
   # run default program built or to be built with the compiler command
   # "f90". If more than one app exists a list displays and target names
   # are required.
   fpm run --compiler f90
-<P>
+<br />
   # run example programs instead of the application programs.
-  fpm run --example &#146;*&#146;
-<P>
+  fpm run --example '*'
+<br />
   # run a specific program and pass arguments to the command
   fpm run myprog -- -x 10 -y 20 --title "my title line"
-<P>
+<br />
   # run production version of two applications
-  fpm run --target prg1,prg2 --release
-<P>
+  fpm run --target prg1,prg2 --profile release
+<br />
   # install executables in directory (assuming install(1) exists)
-  fpm run --runner &#146;install -b -m 0711 -p -t /usr/local/bin&#146;
-<P>
-</PRE>
-</BLOCKQUOTE>
-<A name=52>
-
-     <H3>NAME</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>test</B>(1) - the <B>fpm</B>(1) subcommand to run project tests
-<P>
-</BLOCKQUOTE>
-<A name=53>
-
-     <H3>SYNOPSIS</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>fpm</B> test [[-<B>-target</B>] <I><A HREF=#52>NAME</A></I>(s)][-<B>-release</B>][-<B>-compiler</B> <I>COMPILER_NAME</I> ]
-[-<B>-runner</B> "CMD"] [-<B>-list</B>][-- ARGS]
-<P>
-<B>fpm</B> test <B>--help</B>|<B>--version</B>
-</BLOCKQUOTE>
-<A name=54>
-
-     <H3>DESCRIPTION</H3>
-
-</A>
-<BLOCKQUOTE>
-Run applications you have built to test your project.
-</BLOCKQUOTE>
-<A name=55>
-
-     <H3>OPTIONS</H3>
-
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD colspan=2>
-<B></B><B>--target</B> <I>NAME</I>(s) </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-optional list of specific test names to execute.
-The default is to run all the tests in test/
-or the tests listed in the "fpm.toml" file.
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--release</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-selects the optimized <I>build</I> instead of the debug
-<I>build</I>.
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--compiler</B> <I>COMPILER_NAME</I> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-Specify a compiler name. The default is
-"gfortran" unless set by the environment
-variable FPM_COMPILER.
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--runner</B> CMD </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-A command to prefix the program execution paths with.
-see "<B>fpm</B> help runner" for further details.
-</TD></TR>
-<TR valign=top><TD width=6% nowrap>
-<B></B><B>--list</B> </TD><TD valign=bottom>
-list candidates instead of building or running them
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B>-- ARGS</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-optional arguments to pass to the test <B>program</B>(s).
-The same arguments are passed to all test names
-specified.
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<A name=56>
-
-     <H3>EXAMPLES</H3>
-
-</A>
-<BLOCKQUOTE>
-run tests
-<P>
-<PRE>
+  fpm run --runner 'install -b -m 0711 -p -t /usr/local/bin'
+<br />
+</pre>
+      </blockquote><a name="52" id="52">
+      <h3>NAME</h3></a>
+      <blockquote>
+        <b>test</b>(1) - the <b>fpm</b>(1) subcommand to run project tests
+      </blockquote><a name="53" id="53">
+      <h3>SYNOPSIS</h3></a>
+      <blockquote>
+        <b>fpm</b> test [[-<b>-target</b>] <i><a href="#52">NAME</a></i>(<i>s</i>)] [-<b>-profile</b> <i>PROF</i>] [-<b>-flag</b> <i>FFLAGS</i>]
+        [-<b>-compiler</b> <i>COMPILER_NAME</i> ] [-<b>-runner</b> "CMD"] [-<b>-list</b>][-- ARGS]
+        <p><b>fpm</b> test <b>--help</b>|<b>--version</b></p>
+      </blockquote><a name="54" id="54">
+      <h3>DESCRIPTION</h3></a>
+      <blockquote>
+        Run applications you have built to test your project.
+      </blockquote><a name="55" id="55">
+      <h3>OPTIONS</h3></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td colspan="2"><b>--target</b> <i>NAME</i>(<i>s</i>)</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>
+              optional list of specific test names to execute. The default is to run all the tests in test/ or the tests listed in the "fpm.toml" file.
+              <p>Basic "globbing" is supported where "?" represents any single character and "*" represents any string. Note The glob string normally needs
+              quoted to protect the special characters from shell expansion.</p>
+            </td>
+          </tr>
+          <tr valign="top">
+            <td colspan="2"><b>--profile</b> <i>PROF</i></td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>selects the compilation profile for the <i>build</i>. Currently available profiles are "release" for high optimization and "debug" for full
+            debug options. If <b>--flag</b> is not specified the "debug" flags are the default.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--flag</td>
+            <td valign="bottom"><i>FFLAGS</i> selects compile arguments for the <i>build</i>. These are added to the profile options if <b>--profile</b> is
+            specified, else these options override the defaults. Note object and .mod directory locations are always built in.</td>
+          </tr>
+          <tr valign="top">
+            <td colspan="2"><b>--compiler</b> <i>COMPILER_NAME</i></td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>Specify a compiler name. The default is "gfortran" unless set by the environment variable FPM_COMPILER.</td>
+          </tr>
+          <tr valign="top">
+            <td colspan="2"><b>--runner</b> CMD</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>A command to prefix the program execution paths with. see "<b>fpm</b> help runner" for further details.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--list</td>
+            <td valign="bottom">list candidates instead of building or running them</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" colspan="2">-- ARGS</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>optional arguments to pass to the test <b>program</b>(<i>s</i>). The same arguments are passed to all test names specified.</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote><a name="56" id="56">
+      <h3>EXAMPLES</h3></a>
+      <blockquote>
+        run tests
+        <pre>
  # run default tests in /test or as specified in "fpm.toml"
  fpm test
-<P>
+<br />
  # run using compiler command "f90"
  fpm test --compiler f90
-<P>
+<br />
  # run a specific test and pass arguments to the command
  fpm test mytest -- -x 10 -y 20 --title "my title line"
-<P>
- fpm test tst1 tst2 --release # run production version of two tests
-<P>
-</PRE>
-</BLOCKQUOTE>
-<A name=52>
-
-     <H3>NAME</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>--runner</B>(1) - a shared option for specifying an application to launch
-executables.
-<P>
-</BLOCKQUOTE>
-<A name=53>
-
-     <H3>SYNOPSIS</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>fpm</B> run|test <B>--runner</B> <I>CMD</I> &#46;&#46;&#46; -- <I>SUFFIX_OPTIONS</I>
-</BLOCKQUOTE>
-<A name=54>
-
-     <H3>DESCRIPTION</H3>
-
-</A>
-<BLOCKQUOTE>
-The <B>--runner</B> option allows specifying a program to launch
-executables selected via the <B>fpm</B>(1) subcommands "run" and "test". This
-gives easy recourse to utilities such as debuggers and other tools
-that wrap other executables.
-<P>
-These external commands are not part of <B>fpm</B>(1) itself as they vary
-from platform to platform or require independent installation.
-</BLOCKQUOTE>
-<A name=31>
-
-     <H3>OPTION</H3>
-
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD colspan=2>
-<B></B><B>--runner</B> &#146;<I>CMD</I>&#146; </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-quoted command used to launch the <B>fpm</B>(1) executables.
-Available for both the "run" and "test" subcommands.
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B>-- </B><I>SUFFIX_OPTIONS</I> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-additional options to suffix the command <I>CMD</I> and executable
-file names with.
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<A name=56>
-
-     <H3>EXAMPLES</H3>
-
-</A>
-<BLOCKQUOTE>
-Use cases for &#146;<B>fpm</B> run|test <B>--runner</B> "<I>CMD</I>"&#146; include employing
-the following common GNU/Linux and Unix commands:
-</BLOCKQUOTE>
-<A name=33>
-
-    <H4>&nbsp; &nbsp; INTERROGATE</H4>
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-nm - list symbols from object files
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-size - list section sizes and total size.
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-ldd - print shared object dependencies
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-ls - list directory contents
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-stat - display file or file system status
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-file - determine file type
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<A name=34>
-
-    <H4>&nbsp; &nbsp; PERFORMANCE AND DEBUGGING</H4>
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-gdb - The GNU Debugger
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-valgrind - a suite of tools for debugging and profiling
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-time - time a simple command or give resource usage
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-timeout - run a command with a time limit
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<A name=35>
-
-    <H4>&nbsp; &nbsp; COPY</H4>
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-install - copy files and set attributes
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-tar - an archiving utility
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<A name=36>
-
-    <H4>&nbsp; &nbsp; ALTER</H4>
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-rm - remove files or directories
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-chmod - change permissions of a file
-</TD></TR>
-<TR valign=top><TD width=3%>
-o
-</TD><TD>
-strip - remove unnecessary information from strippable files
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<P>
-For example
-<P>
-<PRE>
+<br />
+ fpm test tst1 tst2 --profile PROF  # run production version of two tests
+<br />
+</pre>
+      </blockquote><a name="52" id="52">
+      <h3>NAME</h3></a>
+      <blockquote>
+        <b>--runner</b>(1) - a shared option for specifying an application to launch executables.
+      </blockquote><a name="53" id="53">
+      <h3>SYNOPSIS</h3></a>
+      <blockquote>
+        <b>fpm</b> run|test <b>--runner</b> <i>CMD</i> ... -- <i>SUFFIX_OPTIONS</i>
+      </blockquote><a name="54" id="54">
+      <h3>DESCRIPTION</h3></a>
+      <blockquote>
+        The <b>--runner</b> option allows specifying a program to launch executables selected via the <b>fpm</b>(1) subcommands "run" and "test". This gives
+        easy recourse to utilities such as debuggers and other tools that wrap other executables.
+        <p>These external commands are not part of <b>fpm</b>(1) itself as they vary from platform to platform or require independent installation.</p>
+      </blockquote><a name="31" id="31">
+      <h3>OPTION</h3></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td colspan="2"><b>--runner</b> '<i>CMD</i>'</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>quoted command used to launch the <b>fpm</b>(1) executables. Available for both the "run" and "test" subcommands. If the keyword is
+            specified without a value the default command is "echo".</td>
+          </tr>
+          <tr valign="top">
+            <td colspan="2"><b>--</b> <i>SUFFIX_OPTIONS</i></td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>additional options to suffix the command <i>CMD</i> and executable file names with.</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote><a name="56" id="56">
+      <h3>EXAMPLES</h3></a>
+      <blockquote>
+        Use cases for '<b>fpm</b> run|test <b>--runner</b> "<i>CMD</i>"' include employing the following common GNU/Linux and Unix commands:
+      </blockquote><a name="33" id="33">
+      <h4>INTERROGATE</h4></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>nm - list symbols from object files</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>size - list section sizes and total size.</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>ldd - print shared object dependencies</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>ls - list directory contents</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>stat - display file or file system status</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>file - determine file type</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote><a name="34" id="34">
+      <h4>PERFORMANCE AND DEBUGGING</h4></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>gdb - The GNU Debugger</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>valgrind - a suite of tools for debugging and profiling</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>time - time a simple command or give resource usage</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>timeout - run a command with a time limit</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote><a name="35" id="35">
+      <h4>COPY</h4></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>install - copy files and set attributes</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>tar - an archiving utility</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote><a name="36" id="36">
+      <h4>ALTER</h4></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>rm - remove files or directories</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>chmod - change permissions of a file</td>
+          </tr>
+          <tr valign="top">
+            <td width="3%">o</td>
+            <td>strip - remove unnecessary information from strippable files</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote>
+      <p>For example</p>
+      <pre>
   fpm test --runner gdb
   fpm run --runner "tar cvfz $HOME/bundle.tgz"
   fpm run --runner ldd
   fpm run --runner strip
-  fpm run --runner &#146;cp -t /usr/local/bin&#146;
-<P>
+  fpm run --runner 'cp -t /usr/local/bin'
+<br />
   # options after executable name can be specified after the -- option
   fpm --runner cp run -- /usr/local/bin/
   # generates commands of the form "cp $FILENAME /usr/local/bin/"
-<P>
+<br />
   # bash(1) alias example:
   alias fpm-install=\
-  "fpm run --release --runner &#146;install -vbp -m 0711 -t ~/.local/bin&#146;"
+  "fpm run --profile release --runner 'install -vbp -m 0711 -t ~/.local/bin'"
   fpm-install
-<P>
-</PRE>
-<A name=52>
-
-     <H3>NAME</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>install</B>(1) - install <B>fpm</B> projects
-<P>
-</BLOCKQUOTE>
-<A name=53>
-
-     <H3>SYNOPSIS</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>fpm</B> <I>install</I> [-<B>-release</B>] [-<B>-list</B>] [-<B>-no-rebuild</B>] [-<B>-prefix</B> <I>DIR</I>]
-[-<B>-bindir</B> <I>DIR</I>] [-<B>-libdir</B> <I>DIR</I>] [-<B>-includedir</B> <I>DIR</I>]
-[-<B>-verbose</B>]
-</BLOCKQUOTE>
-<A name=54>
-
-     <H3>DESCRIPTION</H3>
-
-</A>
-<BLOCKQUOTE>
-Subcommand to <I>install</I> <B>fpm</B> projects. Running <I>install</I> will export the
-current project to the selected prefix, this will by default <I>install</I> all
-executables (tests and examples are excluded) which are part of the projects.
-Libraries and module files are only installed for projects requiring the
-installation of those components in the package manifest.
-</BLOCKQUOTE>
-<A name=55>
-
-     <H3>OPTIONS</H3>
-
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD width=6% nowrap>
-<B></B><B>--list</B> </TD><TD valign=bottom>
-list all installable targets for this project,
-but do not <I>install</I> any of them
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--release</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-selects the optimized <I>build</I> instead of the debug <I>build</I>
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--no-rebuild</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-do not rebuild project before installation
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--prefix</B> <I>DIR</I> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-path to installation directory (requires write access),
-the default prefix on Unix systems is $HOME/.local
-and %APPDATA%\local on Windows
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--bindir</B> <I>DIR</I> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-subdirectory to place executables in (default: bin)
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--libdir</B> <I>DIR</I> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-subdirectory to place libraries and archives in
-(default: lib)
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--includedir</B> <I>DIR</I> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-subdirectory to place headers and module files in
-(default: include)
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--verbose</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-print more information
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<A name=56>
-
-     <H3>EXAMPLES</H3>
-
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD width=4%>
-1.
-</TD><TD>
-Install release version of project:
-</TD></TR>
-<TR></TR></TABLE><!-- .nf -->
-<PRE>
-    fpm install --release
-<P>
-</PRE>
-<TABLE cellpadding=3>
-<TR valign=top><TD width=4%>
-2.
-</TD><TD>
-Install the project without rebuilding the executables:
-</TD></TR>
-<TR></TR></TABLE><!-- .nf -->
-<PRE>
+<br />
+</pre><a name="52" id="52">
+      <h3>NAME</h3></a>
+      <blockquote>
+        <b>install</b>(1) - install <b>fpm</b> projects
+      </blockquote><a name="53" id="53">
+      <h3>SYNOPSIS</h3></a>
+      <blockquote>
+        <b>fpm</b> <i>install</i> [-<b>-profile</b> <i>PROF</i>] [-<b>-flag</b> <i>FFLAGS</i>] [-<b>-list</b>] [-<b>-no-rebuild</b>] [-<b>-prefix</b>
+        <i>DIR</i>] [-<b>-bindir</b> <i>DIR</i>] [-<b>-libdir</b> <i>DIR</i>] [-<b>-includedir</b> <i>DIR</i>] [-<b>-verbose</b>]
+      </blockquote><a name="54" id="54">
+      <h3>DESCRIPTION</h3></a>
+      <blockquote>
+        Subcommand to <i>install</i> <b>fpm</b> projects. Running <i>install</i> will export the current project to the selected prefix, this will by
+        default <i>install</i> all executables (tests and examples are excluded) which are part of the projects. Libraries and module files are only
+        installed for projects requiring the installation of those components in the package manifest.
+      </blockquote><a name="55" id="55">
+      <h3>OPTIONS</h3></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--list</td>
+            <td valign="bottom">list all installable targets for this project, but do not <i>install</i> any of them</td>
+          </tr>
+          <tr valign="top">
+            <td colspan="2"><b>--profile</b> <i>PROF</i></td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>selects the compilation profile for the <i>build</i>. Currently available profiles are "release" for high optimization and "debug" for full
+            debug options. If <b>--flag</b> is not specified the "debug" flags are the default.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" width="6%" nowrap="nowrap">--flag</td>
+            <td valign="bottom"><i>FFLAGS</i> selects compile arguments for the <i>build</i>. These are added to the profile options if <b>--profile</b> is
+            specified, else these options override the defaults. Note object and .mod directory locations are always built in.</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" colspan="2">--no-rebuild</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>do not rebuild project before installation</td>
+          </tr>
+          <tr valign="top">
+            <td colspan="2"><b>--prefix</b> <i>DIR</i></td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>path to installation directory (requires write access), the default prefix on Unix systems is $HOME/.local and %APPDATA%\local on
+            Windows</td>
+          </tr>
+          <tr valign="top">
+            <td colspan="2"><b>--bindir</b> <i>DIR</i></td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>subdirectory to place executables in (default: bin)</td>
+          </tr>
+          <tr valign="top">
+            <td colspan="2"><b>--libdir</b> <i>DIR</i></td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>subdirectory to place libraries and archives in (default: lib)</td>
+          </tr>
+          <tr valign="top">
+            <td colspan="2"><b>--includedir</b> <i>DIR</i></td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>subdirectory to place headers and module files in (default: include)</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" colspan="2">--verbose</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>print more information</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote><a name="56" id="56">
+      <h3>EXAMPLES</h3></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td width="4%">1.</td>
+            <td>Install release version of project:</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table><!-- .nf -->
+        <pre>
+    fpm install --profile release
+<br />
+</pre>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td width="4%">2.</td>
+            <td>Install the project without rebuilding the executables:</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table><!-- .nf -->
+        <pre>
     fpm install --no-rebuild
-<P>
-</PRE>
-<TABLE cellpadding=3>
-<TR valign=top><TD width=4%>
-3.
-</TD><TD>
-Install executables to a custom prefix into the exe directory:
-</TD></TR>
-<TR></TR></TABLE><!-- .nf -->
-<PRE>
+<br />
+</pre>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td width="4%">3.</td>
+            <td>Install executables to a custom prefix into the exe directory:</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table><!-- .nf -->
+        <pre>
     fpm install --prefix $PWD --bindir exe
-<P>
-</PRE>
-</BLOCKQUOTE>
-<A name=52>
-
-     <H3>NAME</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>update</B>(1) - manage project dependencies
-<P>
-</BLOCKQUOTE>
-<A name=53>
-
-     <H3>SYNOPSIS</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>fpm</B> update [-<B>-fetch-only</B>] [-<B>-clean</B>] [-<B>-verbose</B>] <B>[NAME</B>(<I>s</I>)]
-</BLOCKQUOTE>
-<A name=54>
-
-     <H3>DESCRIPTION</H3>
-
-</A>
-<BLOCKQUOTE>
-Manage and update project dependencies. If no dependency names are
-provided all the dependencies are updated automatically.
-</BLOCKQUOTE>
-<A name=55>
-
-     <H3>OPTIONS</H3>
-
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD colspan=2>
-<B></B><B>--fetch-only</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-Only fetch dependencies, do not update existing projects
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--clean</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-Do not use previous dependency cache
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B></B><B>--verbose</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-Show additional printout
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<A name=46>
-
-     <H3>SEE ALSO</H3>
-
-</A>
-<BLOCKQUOTE>
-The <B>fpm</B>(1) home page at https://github.com/fortran-lang/<B>fpm</B>
-</BLOCKQUOTE>
-<A name=52>
-
-     <H3>NAME</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>list</B>(1) - list summary of <B>fpm</B>(1) subcommands
-<P>
-</BLOCKQUOTE>
-<A name=53>
-
-     <H3>SYNOPSIS</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>fpm</B> <I>list</I> [-<I>list</I>]
-<P>
-<B>fpm</B> <I>list</I> <B>--help</B>|<B>--version</B>
-</BLOCKQUOTE>
-<A name=54>
-
-     <H3>DESCRIPTION</H3>
-
-</A>
-<BLOCKQUOTE>
-Display a short description for each <B>fpm</B>(1) subcommand.
-</BLOCKQUOTE>
-<A name=55>
-
-     <H3>OPTIONS</H3>
-
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD width=6% nowrap>
-<B>--</B><I>list</I> </TD><TD valign=bottom>
-display a <I>list</I> of command options as well. This is the
-same output as generated by "<B>fpm</B> --<I>list</I>".
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<A name=56>
-
-     <H3>EXAMPLES</H3>
-
-</A>
-<BLOCKQUOTE>
-display a short <I>list</I> of <B>fpm</B>(1) subcommands
-<P>
-<PRE>
+<br />
+</pre>
+      </blockquote><a name="52" id="52">
+      <h3>NAME</h3></a>
+      <blockquote>
+        <b>update</b>(1) - manage project dependencies
+      </blockquote><a name="53" id="53">
+      <h3>SYNOPSIS</h3></a>
+      <blockquote>
+        <b>fpm</b> update [-<b>-fetch-only</b>] [-<b>-clean</b>] [-<b>-verbose</b>] <b>[NAME</b>(<i>s</i>)]
+      </blockquote><a name="54" id="54">
+      <h3>DESCRIPTION</h3></a>
+      <blockquote>
+        Manage and update project dependencies. If no dependency names are provided all the dependencies are updated automatically.
+      </blockquote><a name="55" id="55">
+      <h3>OPTIONS</h3></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td class="c2" colspan="2">--fetch-only</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>Only fetch dependencies, do not update existing projects</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" colspan="2">--clean</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>Do not use previous dependency cache</td>
+          </tr>
+          <tr valign="top">
+            <td class="c2" colspan="2">--verbose</td>
+          </tr>
+          <tr valign="top">
+            <td width="6%"></td>
+            <td>Show additional printout</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote><a name="46" id="46">
+      <h3>SEE ALSO</h3></a>
+      <blockquote>
+        The <b>fpm</b>(1) home page at https://github.com/fortran-lang/<b>fpm</b>
+      </blockquote><a name="52" id="52">
+      <h3>NAME</h3></a>
+      <blockquote>
+        <b>list</b>(1) - list summary of <b>fpm</b>(1) subcommands
+      </blockquote><a name="53" id="53">
+      <h3>SYNOPSIS</h3></a>
+      <blockquote>
+        <b>fpm</b> <i>list</i> [-<i>list</i>]
+        <p><b>fpm</b> <i>list</i> <b>--help</b>|<b>--version</b></p>
+      </blockquote><a name="54" id="54">
+      <h3>DESCRIPTION</h3></a>
+      <blockquote>
+        Display a short description for each <b>fpm</b>(1) subcommand.
+      </blockquote><a name="55" id="55">
+      <h3>OPTIONS</h3></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td width="6%" nowrap="nowrap"><b>--</b><i>list</i></td>
+            <td valign="bottom">display a <i>list</i> of command options as well. This is the same output as generated by "<b>fpm</b> --<i>list</i>".</td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote><a name="56" id="56">
+      <h3>EXAMPLES</h3></a>
+      <blockquote>
+        display a short <i>list</i> of <b>fpm</b>(1) subcommands
+        <pre>
   fpm list
   fpm --list
-<P>
-</PRE>
-</BLOCKQUOTE>
-<A name=52>
-
-     <H3>NAME</H3>
-
-</A>
-<BLOCKQUOTE>
-<B>help</B>(1) - the <B>fpm</B>(1) subcommand to display help
-<P>
-</BLOCKQUOTE>
-<A name=53>
-
-     <H3>SYNOPSIS</H3>
-
-</A>
-<BLOCKQUOTE>
-<I>fpm</I> <I>help</I> [fpm] [new] [build] [run] [test] [help] [version] [manual]
-[runner]
-</BLOCKQUOTE>
-<A name=54>
-
-     <H3>DESCRIPTION</H3>
-
-</A>
-<BLOCKQUOTE>
-The "<I>fpm</I> <I>help</I>" command is an alternative to the --<I>help</I> parameter
-on the <I>fpm</I>(1) command and its subcommands.
-</BLOCKQUOTE>
-<A name=55>
-
-     <H3>OPTIONS</H3>
-
-</A>
-<BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD width=6% nowrap>
-<B></B><I>NAME</I>(<I>s</I>) </TD><TD valign=bottom>
-A <I>list</I> of topic names to display. All the subcommands
-have their own page (<I>new</I>, <I>build</I>, <I>run</I>, <I>test</I>, &#46;&#46;&#46;).
-<P>
-The special name "<I>manual</I>" displays all the <I>fpm</I>(1)
-built-in documentation.
-<P>
-The default is to display <I>help</I> for the <I>fpm</I>(1) command
-itself.
-</TD></TR>
-<TR></TR></TABLE></BLOCKQUOTE>
-<A name=56>
-
-     <H3>EXAMPLES</H3>
-
-</A>
-<BLOCKQUOTE>
-Sample usage:
-<P>
-<PRE>
+<br />
+</pre>
+      </blockquote><a name="52" id="52">
+      <h3>NAME</h3></a>
+      <blockquote>
+        <b>help</b>(1) - the <b>fpm</b>(1) subcommand to display help
+      </blockquote><a name="53" id="53">
+      <h3>SYNOPSIS</h3></a>
+      <blockquote>
+        <i>fpm</i> <i>help</i> [fpm] [new] [build] [run] [test] [help] [version] [manual] [runner]
+      </blockquote><a name="54" id="54">
+      <h3>DESCRIPTION</h3></a>
+      <blockquote>
+        The "<i>fpm</i> <i>help</i>" command is an alternative to the --<i>help</i> parameter on the <i>fpm</i>(1) command and its subcommands.
+      </blockquote><a name="55" id="55">
+      <h3>OPTIONS</h3></a>
+      <blockquote>
+        <table cellpadding="3">
+          <tr valign="top">
+            <td width="6%" nowrap="nowrap"><i>NAME</i>(<i>s</i>)</td>
+            <td valign="bottom">
+              A <i>list</i> of topic names to display. All the subcommands have their own page (<i>new</i>, <i>build</i>, <i>run</i>, <i>test</i>, ...).
+              <p>The special name "<i>manual</i>" displays all the <i>fpm</i>(1) built-in documentation.</p>
+              <p>The default is to display <i>help</i> for the <i>fpm</i>(1) command itself.</p>
+            </td>
+          </tr>
+          <tr>
+            <td></td>
+          </tr>
+        </table>
+      </blockquote><a name="56" id="56">
+      <h3>EXAMPLES</h3></a>
+      <blockquote>
+        Sample usage:
+        <pre>
      fpm help           # general fpm(1) command help
      fpm help version   # show program version
      fpm help new       # display help for "new" subcommand
      fpm help manual    # All fpm(1) built-in documentation
-<P>
-<P>
-</PRE>
-</BLOCKQUOTE>
-<TABLE cellpadding=3>
-<TR valign=top><TD colspan=2>
-<B>Version:</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-0.1.4, alpha
-<TABLE width=100% cellpadding=3><!-- tsb: 0.1.4, alpha
+<br />
+<br />
+</pre>
+      </blockquote>
+      <table cellpadding="3">
+        <tr valign="top">
+          <td class="c2" colspan="2">Version:</td>
+        </tr>
+        <tr valign="top">
+          <td width="6%"></td>
+          <td>
+            0.1.4, alpha
+            <table width="100%" cellpadding="3">
+              <!-- tsb: 0.1.4, alpha
  -->
-<TR></TR><TR></TR>
-<TR valign=top><TD colspan=2>
-<B>Program:</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-<I>fpm</I>(1)
-Description: A Fortran package manager and <I>build</I> system
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B>Home Page:</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-https://github.com/fortran-lang/<I>fpm</I>
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B>License:</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-MIT
-</TD></TR>
-<TR valign=top><TD colspan=2>
-<B>OS Type:</B> </TD></TR><TR valign=top><TD width=6%>&nbsp;</TD><TD>
-Linux
-</TD></TR>
-<TR></TR></TABLE></TD></TR>
-<TR></TR></TABLE><P><HR>
-<TABLE width=100%><TR> <TD width=33%><I></I></TD> <TD width=33% align=center>untitled ()</TD> <TD align=right width=33%><I>February 23, 2021</I></TD> </TR></TABLE><FONT SIZE=-1>Generated by <A HREF="http://www.squarebox.co.uk/download/manServer.shtml">manServer 1.08</A> from manual.1 using man macros.</FONT>
-<br><br><center><img src="images/manual.1.gif"></center>
-</div>
-</div>
+              <tr>
+                <td></td>
+              </tr>
+              <tr>
+                <td></td>
+              </tr>
+              <tr valign="top">
+                <td class="c2" colspan="2">Program:</td>
+              </tr>
+              <tr valign="top">
+                <td width="6%"></td>
+                <td><i>fpm</i>(1) Description: A Fortran package manager and <i>build</i> system</td>
+              </tr>
+              <tr valign="top">
+                <td class="c2" colspan="2">Home Page:</td>
+              </tr>
+              <tr valign="top">
+                <td width="6%"></td>
+                <td>https://github.com/fortran-lang/<i>fpm</i></td>
+              </tr>
+              <tr valign="top">
+                <td class="c2" colspan="2">License:</td>
+              </tr>
+              <tr valign="top">
+                <td width="6%"></td>
+                <td>MIT</td>
+              </tr>
+              <tr valign="top">
+                <td class="c2" colspan="2">OS Type:</td>
+              </tr>
+              <tr valign="top">
+                <td width="6%"></td>
+                <td>Linux</td>
+              </tr>
+              <tr>
+                <td></td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td></td>
+        </tr>
+      </table>
+      <hr />
+      <table width="100%">
+        <tr>
+          <td width="33%"></td>
+          <td width="33%" align="center">fpm (1)</td>
+          <td class="c3" align="right" width="33%">March 22, 2021</td>
+        </tr>
+      </table><span class="c4">Generated by <a href="http://www.squarebox.co.uk/download/manServer.shtml">manServer 1.08</a> from x.1 using man
+      macros.</span><br />
+      <br />
+      <div class="c1"><img src="images/x.1.gif" /></div>
+    </div>
+  </div>
 </body>
-</HTML>
+</html>

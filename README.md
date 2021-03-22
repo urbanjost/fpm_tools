@@ -4,6 +4,7 @@
 This is a scratch directory for testing `fpm` and will generally be
 broken. **Nothing to see here**.
 
+ + The [fpm(1) man-pages are converted to HTML](docs/manual.html).
  + The fpm(1) home page is at [https://github.com/fortran-lang/fpm](https://github.com/fortran-lang/fpm).
    In includes instructions on **installing** from a binary or how to bootstrap from source.
    It includes a **discussion** and **issues** section.

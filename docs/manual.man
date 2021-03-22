@@ -28,30 +28,35 @@ SUBCOMMANDS
   + run   Run the local package binaries. defaults to all binaries for
           that release.
   + test  Run the tests.
-  + help  Alternate to the --help switch for displaying help text.
+  + help  Alternate method for displaying subcommand help.
   + list  Display brief descriptions of all subcommands.
   + install Install project
 
   Their syntax is
 
-    build [--release] [--list] [--compiler COMPILER_NAME]
+    build [--profile PROF] [--flag FFLAGS] [--list] [--compiler COMPILER_NAME]
     new NAME [[--lib|--src] [--app] [--test] [--example]]|
-              [--full|--bare][--backfill]
+             [--full|--bare][--backfill]
     update [NAME(s)] [--fetch-only] [--clean]
-    run [[--target] NAME(s)|--all] [--release] [--list] [--example]
-        [--runner "CMD"] [--compiler COMPILER_NAME] [-- ARGS]
-    test [[--target] NAME(s)] [--release] [--list]
+    run [[--target] NAME(s)] [--profile PROF] [--flag FFLAGS] [--list] [--exampl
+        [--all] [--runner "CMD"] [--compiler COMPILER_NAME] [-- ARGS]
+    test [[--target] NAME(s)] [--profile PROF] [--flag FFLAGS] [--list]
          [--runner "CMD"] [--compiler COMPILER_NAME] [-- ARGS]
     help [NAME(s)]
     list [--list]
-    install [--release] [--no-rebuild] [--prefix PATH] [options]
+    install [--profile PROF] [--flag FFLAGS] [--no-rebuild] [--prefix PATH] [opt
 
 SUBCOMMAND OPTIONS
-  --release  Builds or runs in release mode (versus debug mode). fpm(1)
-             Defaults to using common compiler debug flags and building
-             in "build/*_debug/". When this flag is present build
-             output goes into "build/*_release/" and common compiler
-             optimization flags are used.
+ --profile PROF    selects the compilation profile for the build.
+                   Currently available profiles are "release" for
+                   high optimization and "debug" for full debug options.
+                   If --flag is not specified the "debug" flags are the
+                   default.
+ --flag  FFLAGS    selects compile arguments for the build. These are
+                   added to the profile options if --profile is specified,
+                   else these options override the defaults.
+                   Note object and .mod directory locations are always
+                   built in.
   --list     List candidates instead of building or running them. On
              the fpm(1) command this shows a brief list of subcommands.
   --runner CMD   Provides a command to prefix program execution paths.
@@ -73,7 +78,7 @@ EXAMPLES
     fpm run
     fpm run --example
     fpm new --help
-    fpm run myprogram --release -- -x 10 -y 20 --title "my title"
+    fpm run myprogram --profile release -- -x 10 -y 20 --title "my title"
     fpm install --prefix ~/.local
 
 SEE ALSO
@@ -178,9 +183,9 @@ EXAMPLES
    cd myproject       # Enter the new directory
    # and run commands such as
    fpm build
-   fpm run            # run example application program(s)
+   fpm run            # run lone example application program
    fpm test           # run example test program(s)
-   fpm run --example  # run example program(s)
+   fpm run --example  # run lone example program
 
    fpm new A --full # create example/ and an annotated fpm.toml as well
    fpm new A --bare # create no directories
@@ -191,7 +196,7 @@ NAME
  build(1) - the fpm(1) subcommand to build a project
 
 SYNOPSIS
- fpm build [--release][--compiler COMPILER_NAME] [-list]
+ fpm build [--profile PROF] [--flags FFLAGS] [--compiler COMPILER_NAME] [-list]
 
  fpm build --help|--version
 
@@ -213,8 +218,16 @@ DESCRIPTION
  specified in the "fpm.toml" file.
 
 OPTIONS
- --release    build in build/*_release instead of build/*_debug with
-              high optimization instead of full debug options.
+ --profile PROF    selects the compilation profile for the build.
+                   Currently available profiles are "release" for
+                   high optimization and "debug" for full debug options.
+                   If --flag is not specified the "debug" flags are the
+                   default.
+ --flag  FFLAGS    selects compile arguments for the build. These are
+                   added to the profile options if --profile is specified,
+                   else these options override the defaults.
+                   Note object and .mod directory locations are always
+                   built in.
  --compiler   COMPILER_NAME  Specify a compiler name. The default is
                            "gfortran" unless set by the environment
                            variable FPM_COMPILER.
@@ -226,15 +239,16 @@ OPTIONS
 EXAMPLES
  Sample commands:
 
-  fpm build           # build with debug options
-  fpm build --release # build with high optimization
+  fpm build                   # build with debug options
+  fpm build --profile release # build with high optimization
 
 NAME
  run(1) - the fpm(1) subcommand to run project applications
 
 SYNOPSIS
- fpm run [[--target] NAME(s)|-all][--release][--compiler COMPILER_NAME]
-         [--runner "CMD"] [--example] [--list][-- ARGS]
+ fpm run [[--target] NAME(s) [--profile PROF] [--flag FFLAGS]
+         [--compiler COMPILER_NAME] [--runner "CMD"] [--example]
+         [--list] [--all] [-- ARGS]
 
  fpm run --help|--version
 
@@ -246,17 +260,28 @@ DESCRIPTION
  are automatically rebuilt before being run if they are out of date.
 
 OPTIONS
- --target NAME(s)  list of specific application names to execute.
-                   No name is required if only one application exists.
-                   If no name is supplied and more than one candidate
-                   exists or a name has no match a list is produced
-                   and fpm(1) exits.
-                   Simple "globbing" is supported where "?" represents
+ --target NAME(s)  list of application names to execute. No name is
+                   required if only one target exists. If no name is
+                   supplied and more than one candidate exists or a
+                   name has no match a list is produced and fpm(1)
+                   exits.
+
+                   Basic "globbing" is supported where "?" represents
                    any single character and "*" represents any string.
-                   Therefore a quoted asterisk '*' runs all programs.
- --all      An alias for "--target '*'". All targets are selected.
+                   Note The glob string normally needs quoted to
+                   the special characters from shell expansion.
+ --all   Run all examples or applications. An alias for --target '*'.
  --example  Run example programs instead of applications.
- --release  selects the optimized build instead of the debug build.
+ --profile PROF    selects the compilation profile for the build.
+                   Currently available profiles are "release" for
+                   high optimization and "debug" for full debug options.
+                   If --flag is not specified the "debug" flags are the
+                   default.
+ --flag  FFLAGS    selects compile arguments for the build. These are
+                   added to the profile options if --profile is specified,
+                   else these options override the defaults.
+                   Note object and .mod directory locations are always
+                   built in.
  --compiler COMPILER_NAME  Specify a compiler name. The default is
                            "gfortran" unless set by the environment
                            variable FPM_COMPILER.
@@ -269,10 +294,11 @@ OPTIONS
             arguments are passed to all program names specified.
 
 EXAMPLES
- fpm(1) - run project applications:
+ fpm(1) - run or display project applications:
 
-  # run all default programs in /app or as specified in "fpm.toml"
-  fpm run --all
+  fpm run        # run a target when only one exists or list targets
+  fpm run --list # list all targets, running nothing.
+  fpm run --all  # run all targets, no matter how many there are.
 
   # run default program built or to be built with the compiler command
   # "f90". If more than one app exists a list displays and target names
@@ -286,7 +312,7 @@ EXAMPLES
   fpm run myprog -- -x 10 -y 20 --title "my title line"
 
   # run production version of two applications
-  fpm run --target prg1,prg2 --release
+  fpm run --target prg1,prg2 --profile release
 
   # install executables in directory (assuming install(1) exists)
   fpm run --runner 'install -b -m 0711 -p -t /usr/local/bin'
@@ -295,8 +321,8 @@ NAME
  test(1) - the fpm(1) subcommand to run project tests
 
 SYNOPSIS
- fpm test [[--target] NAME(s)][--release][--compiler COMPILER_NAME ]
-          [--runner "CMD"] [--list][-- ARGS]
+ fpm test [[--target] NAME(s)] [--profile PROF] [--flag FFLAGS]
+          [--compiler COMPILER_NAME ] [--runner "CMD"] [--list][-- ARGS]
 
  fpm test --help|--version
 
@@ -307,8 +333,21 @@ OPTIONS
  --target NAME(s)  optional list of specific test names to execute.
                    The default is to run all the tests in test/
                    or the tests listed in the "fpm.toml" file.
- --release  selects the optimized build instead of the debug
-            build.
+
+                   Basic "globbing" is supported where "?" represents
+                   any single character and "*" represents any string.
+                   Note The glob string normally needs quoted to
+                   protect the special characters from shell expansion.
+ --profile PROF    selects the compilation profile for the build.
+                   Currently available profiles are "release" for
+                   high optimization and "debug" for full debug options.
+                   If --flag is not specified the "debug" flags are the
+                   default.
+ --flag  FFLAGS    selects compile arguments for the build. These are
+                   added to the profile options if --profile is specified,
+                   else these options override the defaults.
+                   Note object and .mod directory locations are always
+                   built in.
  --compiler COMPILER_NAME  Specify a compiler name. The default is
                            "gfortran" unless set by the environment
                            variable FPM_COMPILER.
@@ -331,7 +370,7 @@ run tests
  # run a specific test and pass arguments to the command
  fpm test mytest -- -x 10 -y 20 --title "my title line"
 
- fpm test tst1 tst2 --release # run production version of two tests
+ fpm test tst1 tst2 --profile PROF  # run production version of two tests
 
 NAME
    --runner(1) - a shared option for specifying an application to launch
@@ -352,7 +391,8 @@ DESCRIPTION
 OPTION
  --runner 'CMD'  quoted command used to launch the fpm(1) executables.
                Available for both the "run" and "test" subcommands.
-
+               If the keyword is specified without a value the default command
+               is "echo".
  -- SUFFIX_OPTIONS  additional options to suffix the command CMD and executable
                     file names with.
 EXAMPLES
@@ -393,15 +433,15 @@ EXAMPLES
 
   # bash(1) alias example:
   alias fpm-install=\
-  "fpm run --release --runner 'install -vbp -m 0711 -t ~/.local/bin'"
+  "fpm run --profile release --runner 'install -vbp -m 0711 -t ~/.local/bin'"
   fpm-install
 
 NAME
  install(1) - install fpm projects
 
 SYNOPSIS
- fpm install [--release] [--list] [--no-rebuild] [--prefix DIR]
-             [--bindir DIR] [--libdir DIR] [--includedir DIR]
+ fpm install [--profile PROF] [--flag FFLAGS] [--list] [--no-rebuild]
+             [--prefix DIR] [--bindir DIR] [--libdir DIR] [--includedir DIR]
              [--verbose]
 
 DESCRIPTION
@@ -414,7 +454,16 @@ DESCRIPTION
 OPTIONS
  --list            list all installable targets for this project,
                    but do not install any of them
- --release         selects the optimized build instead of the debug build
+ --profile PROF    selects the compilation profile for the build.
+                   Currently available profiles are "release" for
+                   high optimization and "debug" for full debug options.
+                   If --flag is not specified the "debug" flags are the
+                   default.
+ --flag  FFLAGS    selects compile arguments for the build. These are
+                   added to the profile options if --profile is specified,
+                   else these options override the defaults.
+                   Note object and .mod directory locations are always
+                   built in.
  --no-rebuild      do not rebuild project before installation
  --prefix DIR      path to installation directory (requires write access),
                    the default prefix on Unix systems is $HOME/.local
@@ -429,7 +478,7 @@ OPTIONS
 EXAMPLES
  1. Install release version of project:
 
-    fpm install --release
+    fpm install --profile release
 
  2. Install the project without rebuilding the executables:
 
