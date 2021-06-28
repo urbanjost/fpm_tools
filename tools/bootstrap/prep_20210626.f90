@@ -36,7 +36,8 @@ implicit none
 !-----------------------------------------------------------------------------------------------------------------------------------
    public  :: dissect               ! for user-defined commands: define defaults, then process user input
    private :: parse                 ! parse user command and store tokens into Language Dictionary
-   private :: store                 ! replace dictionary name's value (if allow=add add name if necessary)
+   ! only public for special purpose, should not generally be used by user for regular command line parsing
+   public  :: store                 ! replace dictionary name's value (if allow=add add name if necessary)
    private :: bounce                ! find location (index) in Language Dictionary where VARNAM can be found
    private :: add_string            ! Add new string name to Language Library dictionary
    private :: send_message
@@ -50,7 +51,7 @@ implicit none
 ! length of verbs and entries in Language dictionary
 ! NOTE:   many parameters were reduced in size so as to just accommodate being used as a command line parser.
 !         In particular, some might want to change:
-   integer, parameter,public :: IPic=100                           ! number of entries in language dictionary
+   integer, parameter,public :: IPic=1000                          ! number of entries in language dictionary
    integer, parameter,public :: IPvalue=4096                       ! length of keyword value
    integer, parameter,public :: IPcmd=32768                        ! length of command
    integer, parameter,public :: IPverb=20                          ! length of verb
@@ -517,7 +518,7 @@ end subroutine parse
 subroutine store(name1,value1,allow1,ier)
 ! "@(#)store(3f,private): replace dictionary name's value (if allow='add' add name if necessary)"
 !-----------------------------------------------------------------------------------------------------------------------------------
-      character(len=*),intent(in)        :: name1       ! name in dictionary of from VERB_KEYWORD
+      character(len=*),intent(in)        :: name1       ! name in dictionary of form VERB_KEYWORD
       character(len=*),intent(in)        :: value1      ! value to be associated to NAME1
       character(len=*),intent(in)        :: allow1      ! flag to allow new VERB_KEYWORD name being added
       integer,intent(out)                :: ier         ! flag if error occurs in adding or setting value
@@ -1145,37 +1146,64 @@ end module M_kracken95
 !>>>>> build/dependencies/M_io/src/M_io.f90
 !===================================================================================================================================
 MODULE M_io
-use, intrinsic :: iso_fortran_env, only : ERROR_UNIT        ! access computing environment
-use, intrinsic :: iso_fortran_env, only : stdin=>input_unit !!, stdout=>output_unit, stderr=>error_unit
+use, intrinsic :: iso_fortran_env, only : error_unit,input_unit,output_unit     ! access computing environment
+use, intrinsic :: iso_fortran_env, only : stdin=>input_unit, stdout=>output_unit, stderr=>error_unit
 implicit none
+integer,parameter,private:: sp=kind(1.0), dp=kind(1.0d0)
 private
- public uniq
- public print_inquire
- public notopen
- public slurp
- public swallow
- public dirname
- public splitpath
- public fileopen
- public fileclose
- public filedelete
- public get_tmp
- public read_line
- public getline
- public read_table
- public rd
- public separator
- public which
- public getname
- public filewrite
- public basename
+public uniq
+public print_inquire
+public notopen
+public slurp
+public gulp,swallow
+public number_of_lines
+public dirname
+public basename
+public splitpath
 public joinpath
+public fileopen
+public fileclose
+public filewrite
+public filedelete
+public get_tmp
+public read_line
+public getline
+public read_table
+public rd
+public separator
+public lookfor
+public which
+public get_env
+public getname
 
-!character(len=*),parameter::ident_1="@(#)M_io::read_table(3f): read file containing a table of numeric values"
+! ident_1="@(#)M_io::read_table(3f): read file containing a table of numeric values"
+
+! ident_2="@(#)M_io::rd(3f): ask for string or number from standard input with user-definable prompt"
+interface rd
+   module procedure rd_character
+   module procedure rd_integer
+   module procedure rd_real
+   module procedure rd_doubleprecision
+end interface
 
 interface read_table
-   module procedure read_table_real, read_table_doubleprecision
+   module procedure read_table_i
+   module procedure read_table_r
+   module procedure read_table_d
 end interface
+
+interface swallow
+   module procedure gulp
+end interface
+
+interface filedelete
+   module procedure filedelete_filename
+   module procedure filedelete_lun
+end interface
+
+integer,save,private       :: my_stdout=OUTPUT_UNIT
+logical,save               :: debug=.false.
+integer,save               :: last_int=0
 
 interface string_to_value
    module procedure a2d, a2i
@@ -1185,13 +1213,17 @@ interface v2s
    module procedure i2s
 end interface
 
-!$@(#) M_io::rd(3f): ask for string or number from standard input with user-definable prompt
-interface rd
-   module procedure rd_character
-   module procedure rd_integer
-   module procedure rd_real
-   module procedure rd_doubleprecision
-end interface
+interface journal
+   !!module procedure flush_trail               ! journal()                ! no options
+   module procedure write_message_only        ! journal(c)               ! must have one string
+   module procedure where_write_message_all   ! journal(where,[g1-g9])   ! must have two strings
+   !!module procedure set_stdout_lun            ! journal(i)               ! first is not a string
+end interface journal
+
+interface str
+   module procedure msg_scalar, msg_one
+end interface str
+
 CONTAINS
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
@@ -1278,8 +1310,7 @@ CONTAINS
 function uniq(name,istart,verbose,create)
 implicit none
 
-!character(len=*),parameter::ident_3="&
-!&@(#)M_io::uniq(3f): append a number to the end of filename to make a unique name if name exists"
+! ident_3="@(#)M_io::uniq(3f): append a number to the end of filename to make a unique name if name exists"
 
 !-----------------------------------------------------------------------------------------------------------------------------------
 character(len=*),intent(in)  :: name
@@ -1343,7 +1374,7 @@ logical                     :: create_local
    uniq(:)=name
    INFINITE: do                                       ! top of loop trying for a unique name
       if(itimes.ge.9999999)then                       ! if too many tries to be reasonable give up
-         write(*,*) '*uniq* unable to find a unique filename. Too many tries'
+         call journal('sc','*uniq* unable to find a unique filename. Too many tries')
          uniq=''
          return
       endif
@@ -1357,7 +1388,7 @@ logical                     :: create_local
       inquire(file=uniq,exist=around)                 ! see if this filename already exists
       if(.not.around)then                             ! found an unused name
          if(verbose_local)then
-            write(*,*)trim('*uniq* name='//trim(uniq)) ! write out message reporting name used
+            call journal('c',trim('*uniq* name='//trim(uniq))) ! write out message reporting name used
          endif
          if(create_local)then
             open(newunit=iscr,file=uniq,iostat=ios,status='new')
@@ -1438,7 +1469,7 @@ end function uniq
 !!    Public Domain
 subroutine print_inquire(lun_in,namein_in) ! Version: JSU-1997-12-31, 2020-01-11
 
-!character(len=*),parameter::ident_4="@(#)M_io::print_inquire(3f): Do INQUIRE on file by name/number and print results"
+! ident_4="@(#)M_io::print_inquire(3f): Do INQUIRE on file by name/number and print results"
 
 integer,intent(in),optional             :: lun_in        ! if unit >= 0 then query by unit number, else by name
 character(len=*),intent(in),optional    :: namein_in
@@ -1452,37 +1483,37 @@ integer                        :: lun
 !  FORM      =  FORMATTED   |  UNFORMATTED
 !  POSITION  =  ASIS        |  REWIND       |  APPEND
 !  STATUS    =  NEW         |  REPLACE      |  OLD     |  SCRATCH   | UNKNOWN
-character(len=20)              :: access         ; namelist/inquire/access
-character(len=20)              :: action         ; namelist/inquire/action
-character(len=20)              :: asynchronous   ; namelist/inquire/asynchronous
-character(len=20)              :: blank          ; namelist/inquire/blank
-character(len=20)              :: decimal        ; namelist/inquire/decimal
-character(len=20)              :: delim          ; namelist/inquire/delim
-character(len=20)              :: direct         ; namelist/inquire/direct
-character(len=20)              :: encoding       ; namelist/inquire/encoding
-logical                        :: exist          ; namelist/inquire/exist
-character(len=20)              :: form           ; namelist/inquire/form
-character(len=20)              :: formatted      ; namelist/inquire/formatted
-integer                        :: id             ; namelist/inquire/id
-character(len=20)              :: name           ; namelist/inquire/name
-logical                        :: named          ; namelist/inquire/named
-integer                        :: nextrec        ; namelist/inquire/nextrec
-integer                        :: number         ; namelist/inquire/number
-logical                        :: opened         ; namelist/inquire/opened
-character(len=20)              :: pad            ; namelist/inquire/pad
-logical                        :: pending        ; namelist/inquire/pending
-integer                        :: pos            ; namelist/inquire/pos
-character(len=20)              :: position       ; namelist/inquire/position
-character(len=20)              :: read           ; namelist/inquire/read
-character(len=20)              :: readwrite      ; namelist/inquire/readwrite
-integer                        :: recl           ; namelist/inquire/recl
-!bug!character(len=20)              :: round          ; !BUG!namelist/inquire/round
-character(len=20)              :: sequential     ; namelist/inquire/sequential
-!bug!character(len=20)              :: sign           ; !BUG!namelist/inquire/sign
-integer                        :: size           ; namelist/inquire/size
-character(len=20)              :: stream         ; namelist/inquire/stream
-character(len=20)              :: unformatted    ; namelist/inquire/unformatted
-character(len=20)              :: write          ; namelist/inquire/write
+character(len=20)             :: access         ; namelist/inquire/access
+character(len=20)             :: action         ; namelist/inquire/action
+character(len=20)             :: asynchronous   ; namelist/inquire/asynchronous
+character(len=20)             :: blank          ; namelist/inquire/blank
+character(len=20)             :: decimal        ; namelist/inquire/decimal
+character(len=20)             :: delim          ; namelist/inquire/delim
+character(len=20)             :: direct         ; namelist/inquire/direct
+character(len=20)             :: encoding       ; namelist/inquire/encoding
+logical                       :: exist          ; namelist/inquire/exist
+character(len=20)             :: form           ; namelist/inquire/form
+character(len=20)             :: formatted      ; namelist/inquire/formatted
+integer                       :: id             ; namelist/inquire/id
+character(len=20)             :: name           ; namelist/inquire/name
+logical                       :: named          ; namelist/inquire/named
+integer                       :: nextrec        ; namelist/inquire/nextrec
+integer                       :: number         ; namelist/inquire/number
+logical                       :: opened         ; namelist/inquire/opened
+character(len=20)             :: pad            ; namelist/inquire/pad
+logical                       :: pending        ; namelist/inquire/pending
+integer                       :: pos            ; namelist/inquire/pos
+character(len=20)             :: position       ; namelist/inquire/position
+character(len=20)             :: read           ; namelist/inquire/read
+character(len=20)             :: readwrite      ; namelist/inquire/readwrite
+integer                       :: recl           ; namelist/inquire/recl
+character(len=20)             :: round          ; !BUG!namelist/inquire/round
+character(len=20)             :: sequential     ; namelist/inquire/sequential
+character(len=20)             :: sign           ; !BUG!namelist/inquire/sign
+integer                       :: size           ; namelist/inquire/size
+character(len=20)             :: stream         ; namelist/inquire/stream
+character(len=20)             :: unformatted    ; namelist/inquire/unformatted
+character(len=20)             :: write          ; namelist/inquire/write
 !==============================================================================================
    namein=merge_str(namein_in,'',present(namein_in))
    lun=merge(lun_in,-1,present(lun_in))
@@ -1491,7 +1522,7 @@ character(len=20)              :: write          ; namelist/inquire/write
    !-----------------------------------------------------------------------------------------------------------------------------------
    name=''
    if(namein.eq.''.and.lun.ne.-1)then
-         write(*,*)'*print_inquire* checking unit',lun
+         call journal('sc','*print_inquire* checking unit',lun)
          inquire(unit=lun,                                                                               &
      &   recl=recl,nextrec=nextrec,pos=pos,size=size,                                                    &
      &   position=position,                                                                              &
@@ -1505,7 +1536,7 @@ character(len=20)              :: write          ; namelist/inquire/write
      &   named=named,opened=opened,exist=exist,number=number,pending=pending,asynchronous=asynchronous,  &
      &   iostat=ios,err=999,iomsg=message)
     elseif(namein.ne.'')then
-         write(*,*)'*print_inquire* checking file:'//namein
+         call journal('sc','*print_inquire* checking file:'//namein)
          inquire(file=namein,                                                                            &
      &   recl=recl,nextrec=nextrec,pos=pos,size=size,                                                    &
      &   position=position,                                                                              &
@@ -1520,18 +1551,257 @@ character(len=20)              :: write          ; namelist/inquire/write
      &   iostat=ios,err=999,iomsg=message)
      if(name.eq.'')name=namein
     else
-       write(*,*)'*print_inquire* must specify either filename or unit number'
+       call journal('sc','*print_inquire* must specify either filename or unit number')
     endif
 !-----------------------------------------------------------------------------------------------------------------------------------
    write(*,nml=inquire,delim='none')
    return
 !-----------------------------------------------------------------------------------------------------------------------------------
 999   continue
-   write(*,*)'*print_inquire* bad inquire'
+   call journal('sc','*print_inquire* bad inquire')
 !  If an error condition occurs during execution of an INQUIRE  statement,
 !  all of the inquiry identifiers except ios become undefined.
-   write(*,*)'*print_inquire* inquire call failed,iostat=',ios,'message=',message
+   call journal('sc','*print_inquire* inquire call failed,iostat=',ios,'message=',message)
 end subroutine print_inquire
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+!>
+!!##NAME
+!!    separator(3f) - [M_io:ENVIRONMENT] try to determine pathname directory separator character
+!!    (LICENSE:PD)
+!!
+!!##SYNOPSIS
+!!
+!!    function separator() result(sep)
+!!
+!!     character(len=1) :: sep
+!!
+!!##DESCRIPTION
+!!
+!!    Try to determine the separator character used to separate directory
+!!    names from file basenames. It is assumed it is either a backslash or
+!!    a slash character.
+!!
+!!    First, the environment variables PATH, HOME, PWD, and  SHELL  are
+!!    examined for a backslash, then a slash.
+!!
+!!    Then, using the name the program was invoked with, then an INQUIRE(3f)
+!!    of that name, then ".\NAME" and "./NAME" try to find an expected
+!!    separator character.
+!!
+!!    Can be very system dependent. If the queries fail the default returned
+!!    is "/".
+!!
+!!    The value is cached as a return value for subsequent calls.
+!!
+!!##EXAMPLE
+!!
+!!   sample usage
+!!
+!!    program demo_separator
+!!    use M_io, only : separator
+!!    implicit none
+!!       write(*,*)'separator=',separator()
+!!    end program demo_separator
+function separator2() result(sep)
+
+! use the pathname returned as arg0 to determine pathname separator
+implicit none
+character(len=:),allocatable :: arg0
+integer                      :: arg0_length
+integer                      :: ios
+logical                      :: existing
+character(len=1)             :: sep
+character(len=1),save        :: sep_cache=' '
+character(len=4096)          :: name
+character(len=:),allocatable :: fname
+character(len=:),allocatable :: envnames(:)
+integer                      :: i
+
+   if(sep_cache.ne.' ')then  ! use cached value. NOTE:  A parallel code might theoretically use multiple OS
+         sep=sep_cache
+         return
+   endif
+
+   TESTS: block
+
+   ! check variables names common to many platforms that usually have a directory path in them
+   envnames=[character(len=10) :: 'PATH', 'HOME','PWD','SHELL']
+   ! check PATH variable for slash or backslash
+   do i=1,size(envnames)
+      if(index(get_env(envnames(i)),'\').ne.0)then
+         sep='\'
+         exit TESTS
+      elseif(index(get_env(envnames(i)),'/').ne.0)then
+         sep='/'
+         exit TESTS
+      endif
+   enddo
+
+   ! get argument name ARG0, although this may be just the command verb or nothing at all
+   arg0_length=0
+   name=' '
+   call get_command_argument(0,length=arg0_length,status=ios)
+   if(allocated(arg0))deallocate(arg0)
+   allocate(character(len=arg0_length) :: arg0)
+   call get_command_argument(0,arg0,status=ios)
+
+   if(index(arg0,'\').ne.0)then
+      sep='\'
+      exit TESTS
+   elseif(index(arg0,'/').ne.0)then
+      sep='/'
+      exit TESTS
+   endif
+
+   ! used to try './' and '.\' but exist test on some systems only returns true
+   ! for a regular file so directory names always fail; although this can cause
+   ! problems if trying to see if a filename is unused (the reverse is true in
+   ! that you think a data file exists that is actually a directory!)
+
+   ! try name returned by INQUIRE(3f) of arg0, as some PE will give canonical name
+   existing=.false.
+   name=' '
+   inquire(file=arg0,iostat=ios,name=name)
+   if(ios.eq.0)then
+      if(index(name,'\').ne.0)then
+         sep='\'
+         exit TESTS
+      elseif(index(name,'/').ne.0)then
+         sep='/'
+         exit TESTS
+      endif
+   endif
+
+   ! well, try some common syntax and assume arg0 is in current directory
+   ! could try opening a file assuming in a directory with write permission
+   ! or can open /tmp/unique_file_name can be opened, which does on any Unix-Like System I know of
+   fname='.\'//arg0
+   inquire(file=fname,iostat=ios,exist=existing)
+   if(ios.eq.0)then
+      if(existing)then
+         sep='\'
+         exit TESTS
+      endif
+   endif
+   fname='./'//arg0
+   inquire(file=fname,iostat=ios,exist=existing)
+   if(ios.eq.0)then
+      if(existing)then
+         sep='/'
+         exit TESTS
+      endif
+   endif
+
+   ! used to then call which(arg0) and see if could find pathname but now it calls this function
+
+   ! used to then try to open "/tmp/UNIQUE_NAME" and assume "/" if successful, as any normal ULS has /tmp.
+   ! but now some systems allow a "/" in a filename
+
+   inquire(file='///',iostat=ios,exist=existing) ! on POSIX systems this is the same as '/'.
+   if(ios.eq.0)then
+      if(existing)then
+         sep='/'
+         exit TESTS
+      endif
+   endif
+
+   endblock TESTS
+
+   if(sep.eq.' ')then
+      write(*,*)'<WARNING>unknown system directory path separator, defaulting to slash ("/")'
+      sep='\'
+   endif
+
+   sep_cache=sep
+end function separator2
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function separator() result(sep)
+!>
+!!##NAME
+!!    separator(3f) - [M_io:ENVIRONMENT] try to determine pathname directory separator character
+!!    (LICENSE:PD)
+!!
+!!##SYNOPSIS
+!!
+!!    function separator() result(sep)
+!!
+!!     character(len=1) :: sep
+!!
+!!##DESCRIPTION
+!!   First testing for the existence of "/.",  then if that fails a list
+!!   of variable names assumed to contain directory paths {PATH|HOME} are
+!!   examined first for a backslash, then a slash.  Assuming basically the
+!!   choice is a ULS or MSWindows system, and users can do weird things like
+!!   put a backslash in a ULS path and break it.
+!!
+!!   Therefore can be very system dependent. If the queries fail the
+!!   default returned is "/".
+!!
+!!##EXAMPLE
+!!
+!!   sample usage
+!!
+!!    program demo_separator
+!!    use M_io, only : separator
+!!    implicit none
+!!       write(*,*)'separator=',separator()
+!!    end program demo_separator
+
+! use the pathname returned as arg0 to determine pathname separator
+implicit none
+integer                      :: ios
+integer                      :: i
+logical                      :: existing=.false.
+character(len=1)             :: sep
+!*!IFORT BUG:character(len=1),save        :: sep_cache=' '
+integer,save                 :: isep=-1
+character(len=4096)          :: name
+character(len=:),allocatable :: envnames(:)
+
+    ! NOTE:  A parallel code might theoretically use multiple OS
+    !*!FORT BUG:if(sep_cache.ne.' ')then  ! use cached value.
+    !*!FORT BUG:    sep=sep_cache
+    !*!FORT BUG:    return
+    !*!FORT BUG:endif
+    if(isep.ne.-1)then  ! use cached value.
+        sep=char(isep)
+        return
+    endif
+    FOUND: block
+    ! simple, but does not work with ifort
+    ! most MSWindows environments see to work with backslash even when
+    ! using POSIX filenames to do not rely on '\.'.
+    inquire(file='/.',exist=existing,iostat=ios,name=name)
+    if(existing.and.ios.eq.0)then
+        sep='/'
+        exit FOUND
+    endif
+    ! check variables names common to many platforms that usually have a
+    ! directory path in them although a ULS file can contain a backslash
+    ! and vice-versa (eg. "touch A\\B\\C"). Removed HOMEPATH because it
+    ! returned a name with backslash on CygWin, Mingw, WLS even when using
+    ! POSIX filenames in the environment.
+    envnames=[character(len=10) :: 'PATH', 'HOME']
+    do i=1,size(envnames)
+       if(index(get_env(envnames(i)),'\').ne.0)then
+          sep='\'
+          exit FOUND
+       elseif(index(get_env(envnames(i)),'/').ne.0)then
+          sep='/'
+          exit FOUND
+       endif
+    enddo
+
+    write(*,*)'<WARNING>unknown system directory path separator'
+    sep='\'
+    endblock FOUND
+    !*!IFORT BUG:sep_cache=sep
+    isep=ichar(sep)
+end function separator
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
@@ -1544,13 +1814,13 @@ end subroutine print_inquire
 !!
 !!   subroutine read_table(filename,array,ierr)
 !!
-!!    character(len=*),intent(in)             :: filename
-!!
-!!    doubleprecision,allocatable,intent(out) :: array(:,:)
-!!    ! or
-!!    real           ,allocatable,intent(out) :: array(:,:)
-!!
-!!    integer,intent(out)                     :: ierr
+!!    character(len=*),intent(in)              :: filename
+!!    integer,allocatable,intent(out)          :: array(:,:)
+!!       or
+!!    real,allocatable,intent(out)             :: array(:,:)
+!!       or
+!!    doubleprecision,allocatable,intent(out)  :: array(:,:)
+!!    integer,intent(out)                      :: ierr
 !!
 !!##DESCRIPTION
 !!    Read a table from a file that is assumed to be columns of
@@ -1559,15 +1829,17 @@ end subroutine print_inquire
 !!
 !!##OPTIONS
 !!    filename   filename to read
-!!    array      array to create
-!!    ierr       zero if no error occurred
+!!    array      array to create. May be INTEGER, REAL, or DOUBLEPRECISION
+!!    ierr       zero if no error occurred.
 !!##EXAMPLES
 !!
 !!    Sample program, assuming the input file "inputfile" exists:
 !!
 !!     program demo_read_table
 !!     use M_io, only : read_table
+!!     implicit none
 !!     doubleprecision,allocatable :: array(:,:)
+!!     integer :: i, ierr
 !!
 !!     ! create test file
 !!     open(file='inputfile',unit=10)
@@ -1620,11 +1892,14 @@ end subroutine print_inquire
 !!    John S. Urban
 !!##LICENSE
 !!    Public Domain
-subroutine read_table_doubleprecision(filename,array,ierr)
+subroutine read_table_d(filename,darray,ierr)
 implicit none
+! note the array is allocated as text, and then doubleprecision, and then placed in the output array.
+! for large files it would be worth it to just determine the file size and allocate and fill the output
+! array
 
 character(len=*),intent(in)             :: FILENAME
-doubleprecision,allocatable,intent(out) :: array(:,:)
+doubleprecision,allocatable,intent(out) :: darray(:,:)
 integer,intent(out)                     :: ierr
 
 character(len=1),allocatable :: text(:) ! array to hold file in memory
@@ -1643,9 +1918,10 @@ character(len=:),allocatable :: line
     ierr=0
 
     if(.not.allocated(text))then
-       write(*,*)'*read_table_doubleprecision* failed to load file '//FILENAME
+       write(*,*)'*read_table* failed to load file '//FILENAME
        ierr=-1
     else
+       if(allocated(line))deallocate(line)
        allocate(character(len=length) :: line)
        ! find number of values on first line and assume this is constant
        line(:)=''
@@ -1660,9 +1936,10 @@ character(len=:),allocatable :: line
           endif
        enddo
        icols=size(s2vs(line))
-       allocate(array(irows,icols))
+       if(allocated(darray))deallocate(darray)
+       allocate(darray(irows,icols))
 
-       array=0.0d0
+       darray=0.0d0
        istart=1
        do j=1,irows
           k=0
@@ -1679,98 +1956,48 @@ character(len=:),allocatable :: line
              endif
           enddo
           istart=i+1
-          array(j,:)=s2vs(line)
+          darray(j,:)=s2vs(line)
        enddo
-
        deallocate(text)  ! release memory
     endif
 
-end subroutine read_table_doubleprecision
+end subroutine read_table_d
 !===================================================================================================================================
-!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
-!===================================================================================================================================
-subroutine read_table_real(filename,array,ierr)
+subroutine read_table_i(filename,array,ierr)
 implicit none
-
 character(len=*),intent(in)             :: FILENAME
-real,allocatable,intent(out) :: array(:,:)
+integer,allocatable,intent(out)         :: array(:,:)
 integer,intent(out)                     :: ierr
-
-character(len=1),allocatable :: text(:) ! array to hold file in memory
-integer                      :: length
-integer                      :: irows
-integer                      :: icols
-integer                      :: nchars
-integer                      :: i
-integer                      :: j
-integer                      :: k
-integer                      :: istart
-character(len=:),allocatable :: line
-
-    call slurp(FILENAME,text,lines=irows,length=length) ! allocate character array and copy file into it
-    nchars=size(text)
-    ierr=0
-
-    if(.not.allocated(text))then
-       write(*,*)'*read_table_real* failed to load file '//FILENAME
-       ierr=-1
-    else
-       allocate(character(len=length) :: line)
-       ! find number of values on first line and assume this is constant
-       line(:)=''
-       do i=1,nchars
-          if(text(i).eq.NEW_LINE('A'))then
-             exit
-          endif
-          if(text(i).eq.char(9))then
-             line(i:i)=' '
-          else
-             line(i:i)=text(i)
-          endif
-       enddo
-       icols=size(s2vs(line))
-       allocate(array(irows,icols))
-
-       array=0.0
-       istart=1
-       do j=1,irows
-          k=0
-          line(:)=''
-          do i=istart,nchars
-             if(text(i).eq.NEW_LINE('A').or.i.eq.nchars)then
-                exit
-             endif
-             k=k+1
-             if(text(i).eq.char(9))then
-                line(k:k)=' '
-             else
-                line(k:k)=text(i)
-             endif
-          enddo
-          istart=i+1
-          array(j,:)=s2vs(line)
-       enddo
-
-       deallocate(text)  ! release memory
-    endif
-
-end subroutine read_table_real
+doubleprecision,allocatable             :: darray(:,:)
+call read_table_d(filename,darray,ierr)
+array=nint(darray)
+end subroutine read_table_i
+!===================================================================================================================================
+subroutine read_table_r(filename,array,ierr)
+implicit none
+character(len=*),intent(in)             :: FILENAME
+real,allocatable,intent(out)            :: array(:,:)
+integer,intent(out)                     :: ierr
+doubleprecision,allocatable             :: darray(:,:)
+call read_table_d(filename,darray,ierr)
+array=real(darray)
+end subroutine read_table_r
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
 !>
 !!##NAME
-!!    swallow(3f) - [M_io] read a file into a character array line by line
+!!    gulp(3f) - [M_io] read a file into a character array line by line
 !!    (LICENSE:PD)
 !!##SYNOPSIS
 !!
-!!   subroutine swallow(filename,pageout)
+!!   subroutine gulp(filename,pageout)
 !!
 !!    character(len=*),intent(in) :: filename
 !!      or
 !!    integer,intent(in)          :: io
 !!
-!!    character(len=1),allocatable,intent(out) :: pageout(:)
+!!    character(len=:),allocatable,intent(out) :: pageout(:)
 !!##DESCRIPTION
 !!    Read an entire file into memory as a character array, one character
 !!    variable per line.
@@ -1782,52 +2009,48 @@ end subroutine read_table_real
 !!    amounts of memory.
 !!
 !!##OPTIONS
-!!       filename   filename to read into memory, or LUN (Fortran Logical Unit Number).
-!!                  If filename is a LUN, file must be opened with
+!!    filename   filename to read into memory, or LUN (Fortran Logical Unit Number).
+!!               If filename is a LUN, file must be opened with
 !!
-!!                     form='unformatted',access='stream'
+!!                  form='unformatted',access='stream'
 !!
-!!                  as in
+!!               as in
 !!
-!!                    open(unit=igetunit, file=filename,     &
-!!                    & action="read", iomsg=message,        &
-!!                    & form="unformatted", access="stream", &
-!!                    & status='old',iostat=ios)
+!!                 open(unit=igetunit, file=filename,     &
+!!                 & action="read", iomsg=message,        &
+!!                 & form="unformatted", access="stream", &
+!!                 & status='old',iostat=ios)
 !!
-!!       pageout    array of characters to hold file
+!!    pageout    array of characters to hold file
 !!
 !!##EXAMPLES
 !!
 !!   Sample program
 !!
-!!    program demo_swallow
-!!    use M_io,      only : swallow
+!!    program demo_gulp
+!!    use M_io,      only : gulp
 !!    implicit none
 !!    character(len=4096)          :: FILENAME   ! file to read
 !!    character(len=:),allocatable :: pageout(:) ! array to hold file in memory
-!!    integer                      :: longest, lines, i, ilen
-!!    character(len=:),allocatable :: line
+!!    integer                      :: longest, lines, i
 !!       ! get a filename
 !!       call get_command_argument(1, FILENAME)
 !!       ! allocate character array and copy file into it
-!!       call swallow(FILENAME,pageout)
+!!       call gulp(FILENAME,pageout)
 !!       if(.not.allocated(pageout))then
-!!          write(*,*)'*demo_swallow* failed to load file '//FILENAME
+!!          write(*,*)'*demo_gulp* failed to load file '//FILENAME
 !!       else
 !!          ! write file from last line to first line
 !!          longest=len(pageout)
 !!          lines=size(pageout)
-!!          allocate(character(len=longest)::line)
 !!          write(*,*)'number of lines is ',lines
 !!          write(*,*)'and length of lines is ',longest
 !!          write(*,'(a)')repeat('%',longest+2)
-!!          do i=lines,1,-1
-!!             write(*,'("%",a,"%")')pageout(i)
-!!          enddo
+!!          write(*,'("%",a,"%")')(trim(pageout(i)),i=lines,1,-1)
 !!          write(*,'(a)')repeat('%',longest+2)
 !!          deallocate(pageout)  ! release memory
 !!       endif
-!!    end program demo_swallow
+!!    end program demo_gulp
 !!
 !!   Given
 !!
@@ -1849,7 +2072,7 @@ end subroutine read_table_real
 !!    John S. Urban
 !!##LICENSE
 !!    Public Domain
-subroutine swallow(FILENAME,pageout)
+subroutine gulp(FILENAME,pageout)
 implicit none
 class(*),intent(in)                      :: FILENAME   ! file to read
 character(len=:),allocatable,intent(out) :: pageout(:) ! page to hold file in memory
@@ -1859,8 +2082,8 @@ character(len=1),allocatable             :: text(:)    ! array to hold file in m
 
    if(.not.allocated(text))then
       select type(FILENAME)
-       type is (character(len=*)); write(*,*)'*swallow* failed to load file '//FILENAME
-       type is (integer);          write(*,'(a,i0)')'*swallow* failed to load file unit ',FILENAME
+       type is (character(len=*)); write(*,*)'*gulp* failed to load file '//FILENAME
+       type is (integer);          write(*,'(a,i0)')'*gulp* failed to load file unit ',FILENAME
       end select
    else  ! convert array of characters to array of lines
       pageout=page(text)
@@ -1870,7 +2093,7 @@ character(len=1),allocatable             :: text(:)    ! array to hold file in m
 contains
 function page(array)  result (table)
 
-!character(len=*),parameter::ident_5="@(#)M_strings::page(3fp): function to copy char array to page of text"
+! ident_5="@(#)page(3fp): function to copy char array to page of text"
 
 character(len=1),intent(in)  :: array(:)
 character(len=:),allocatable :: table(:)
@@ -1902,8 +2125,9 @@ character(len=1),parameter   :: nl=char(10)
       endif
    endif
 
+   if(allocated(table))deallocate(table)
    allocate(character(len=linelength) :: table(lines))
-   table=' '
+   table(:)=' '
 
    linecount=1
    position=1
@@ -1917,7 +2141,7 @@ character(len=1),parameter   :: nl=char(10)
       endif
    enddo
 end function page
-end subroutine swallow
+end subroutine gulp
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
@@ -2002,16 +2226,14 @@ end subroutine swallow
 !!##LICENSE
 !!    Public Domain
 subroutine slurp(filename,text,length,lines)
-!-----------------------------------------------------------------------------------------------------------------------------------
 implicit none
 
-!character(len=*),parameter::ident_6="@(#)M_io::slurp(3f): allocate text array and read file filename into it"
+! ident_6="@(#)M_io::slurp(3f): allocate text array and read file filename into it"
 
 class(*),intent(in)                      :: filename    ! filename to shlep
 character(len=1),allocatable,intent(out) :: text(:)     ! array to hold file
 integer,intent(out),optional             :: length      ! length of longest line
 integer,intent(out),optional             :: lines       ! number of lines
-!-----------------------------------------------------------------------------------------------------------------------------------
 integer :: nchars=0             ! holds size of file
 integer :: igetunit             ! use newunit=igetunit in f08
 integer :: ios=0                ! used for I/O error status
@@ -2021,19 +2243,12 @@ integer :: i
 integer :: icount
 character(len=256)  :: message
 character(len=4096) :: local_filename
-!-----------------------------------------------------------------------------------------------------------------------------------
    length_local=0
    lines_local=0
-   igetunit=notopen(10,99)         ! find unused file unit number (hopefully)
-   if(igetunit.lt.0)then
-      call stderr_local('*slurp* could not find unused file unit number')
-      return
-   endif
-!-------------------------------------------
    message=''
       select type(FILENAME)
        type is (character(len=*))
-          open(unit=igetunit, file=trim(filename), action="read", iomsg=message,&
+          open(newunit=igetunit, file=trim(filename), action="read", iomsg=message,&
            &form="unformatted", access="stream",status='old',iostat=ios)
           local_filename=filename
        type is (integer)
@@ -2041,17 +2256,13 @@ character(len=4096) :: local_filename
           write(local_filename,'("unit ",i0)')filename
           igetunit=filename
       end select
-!-------------------------------------------
    if(ios.eq.0)then  ! if file was successfully opened
-!-------------------------------------------
       inquire(unit=igetunit, size=nchars)
-!-------------------------------------------
       if(nchars.le.0)then
          call stderr_local( '*slurp* empty file '//trim(local_filename) )
          return
       endif
       ! read file into text array
-      !
       if(allocated(text))deallocate(text) ! make sure text array not allocated
       allocate ( text(nchars) )           ! make enough storage to hold file
       read(igetunit,iostat=ios,iomsg=message) text      ! load input file -> text array
@@ -2088,12 +2299,73 @@ character(len=4096) :: local_filename
 contains
 !-----------------------------------------------------------------------------------------------------------------------------------
 subroutine stderr_local(message)
-use, intrinsic :: iso_fortran_env, only : error_unit
 character(len=*) :: message
    write(error_unit,'(a)')trim(message)    ! write message to standard error
 end subroutine stderr_local
 !-----------------------------------------------------------------------------------------------------------------------------------
 end subroutine slurp
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+!>
+!!##NAME
+!!    number_of_lines(3f) - [M_io] read an open sequential file to get
+!!                          number of lines
+!!    (LICENSE:PD)
+!!
+!!##SYNOPSIS
+!!
+!!   function number_of_lines(lun) result(nlines)
+!!
+!!    integer,intent(in)          :: lun
+!!    integer                     :: nlines
+!!
+!!##DESCRIPTION
+!!    Rewind an open sequential file and read through it to count the number
+!!    of lines. The file is rewound on exit.
+!!
+!!##OPTIONS
+!!    lun       logical unit number of open sequential file to count lines in
+!!
+!!##RETURNS
+!!    nlines    number of lines read
+!!
+!!##EXAMPLES
+!!
+!!   Sample program
+!!
+!!    program demo_number_of_lines
+!!    use M_io,      only : number_of_lines, fileopen
+!!    implicit none
+!!    integer :: ios
+!!    integer :: lun
+!!       lun=fileopen('test.txt','r',ios)
+!!       if(ios.eq.0)then
+!!          write(*,*) number_of_lines(lun)
+!!       else
+!!          write(*,*)'ERROR: IOS=',ios
+!!       endif
+!!    end program demo_number_of_lines
+!!
+!!##AUTHOR
+!!    John S. Urban
+!!
+!!##LICENSE
+!!    Public Domain
+function number_of_lines(lun) result(nlines)
+!@(#) determine number or lines in file given a LUN to the open file
+integer,intent(in) :: lun
+integer            :: ios
+integer            :: nlines
+   if(lun.ne.stdin)rewind(lun,iostat=ios)
+   nlines = 0
+   do
+      read(lun, '(A)', iostat=ios)
+      if (ios /= 0) exit
+      nlines = nlines + 1
+   enddo
+   if(lun.ne.stdin)rewind(lun,iostat=ios)
+end function number_of_lines
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
@@ -2226,10 +2498,9 @@ end subroutine slurp
 !!##LICENSE
 !!    Public Domain
 integer function notopen(start,end,err)
-use, intrinsic :: iso_fortran_env, only : error_unit,input_unit,output_unit     ! access computing environment
 implicit none
 
-!character(len=*),parameter::ident_7="@(#)M_io::notopen(3f): find free FORTRAN unit number to OPEN() a file"
+! ident_7="@(#)M_io::notopen(3f): find free FORTRAN unit number to OPEN() a file"
 
 integer,optional,intent(in)    :: start                           ! unit number to start looking at
 integer,optional,intent(in)    :: end                             ! last unit number to look at
@@ -2292,12 +2563,12 @@ end function notopen
 !!      character(len=:),allocatable :: DIRECTORY
 !!
 !!##DESCRIPTION
-!!    Output FILENAME with its last non-slash component and trailing
-!!    slashes removed. If FILENAME contains no '/' character, output
+!!    Output FILENAME with its last non-slash component and trailing slashes
+!!    removed. If FILENAME contains no slash or backslash character, output
 !!    '.' (meaning the current directory).
 !!
-!!    Assumes leaf separator is a slash ('/') and that filename does not
-!!    contain trailing spaces.
+!!    Assumes leaf separator is a slash or backslash as determined by
+!!    separator(3f) and that FILENAME does not contain trailing spaces.
 !!
 !!##OPTIONS
 !!      FILENAME   pathname to remove the last leaf from
@@ -2318,6 +2589,7 @@ end function notopen
 !!    ! get pathname from command line arguments
 !!    do i = 1 , command_argument_count()
 !!       call get_command_argument (i , length=filename_length)
+!!       if(allocated(filename))deallocate(filename)
 !!       allocate(character(len=filename_length) :: filename)
 !!       call get_command_argument (i , value=filename)
 !!       write(*,'(a)')dirname(filename)
@@ -2349,15 +2621,17 @@ end function notopen
 function dirname(filename) result (directory)
 implicit none
 
-!character(len=*),parameter::ident_8="@(#)M_io::dirname(3f): strip last component from filename"
+! ident_8="@(#)M_io::dirname(3f): strip last component from filename"
 
 character(len=*),intent(in)      :: filename
 character(len=:),allocatable     :: directory
 integer                          :: iend
+character(len=1)                 :: sep
 !-----------------------------------------------------------------------------------------------------------------------------------
+   sep=separator()
    directory=trim(filename)
    call removetail()                         ! trim trailing slashes even if duplicates
-   iend=index(directory,'/',back=.true.)     ! find last slash if any
+   iend=index(directory,sep,back=.true.)     ! find last slash if any
    if(iend.eq.0)then                         ! filename is a leaf
       directory='.'                          ! special case
    else
@@ -2369,7 +2643,7 @@ contains
    subroutine removetail()              ! replace trailing slashes with spaces even if duplicates
    integer :: right
    do right=len(directory),1,-1
-      if(directory(right:right).eq.'/'.or.directory(right:right).eq.' ')then
+      if(directory(right:right).eq.sep.or.directory(right:right).eq.' ')then
          directory(right:right)=' '
       else
          exit
@@ -2378,6 +2652,118 @@ contains
    end subroutine removetail
 
 end function dirname
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+!>
+!!##NAME
+!!    basename(3f) - [M_io] return last component from filename
+!!    (LICENSE:PD)
+!!
+!!##SYNOPSIS
+!!
+!!    function basename(FILENAME,SUFFIX) result (LEAF)
+!!
+!!      character(len=:),allocatable :: FILENAME
+!!      character(len=*),intent(in),optional :: SUFFIX
+!!      character(len=*),intent(in) :: LEAF
+!!
+!!##DESCRIPTION
+!!    Output LEAF of filename with directory paths removed.
+!!
+!!    Assumes leaf separator is a slash or backslash as determined by
+!!    separator(3f) and that filename does not contain trailing spaces.
+!!
+!!##OPTIONS
+!!      FILENAME   pathname to extract the last leaf from
+!!      SUFFIX     suffix to remove. If not present
+!!                 the rightmost ".string" string is removed.
+!!                 If present the LEAF is returned with any matching
+!!                 suffix removed.
+!!
+!!##RETURNS
+!!      LEAF  returned leaf name
+!!
+!!##EXAMPLES
+!!
+!!   Sample program:
+!!
+!!    program demo_basename
+!!    use M_io, only : basename
+!!    implicit none
+!!    character(len=:),allocatable :: fn
+!!    integer                      :: filename_length
+!!    integer                      :: i
+!!    ! get pathname from command line arguments
+!!    do i = 1, command_argument_count()
+!!       call get_command_argument (i, length=filename_length)
+!!       if(allocated(fn))deallocate(fn)
+!!       allocate(character(len=filename_length) :: fn)
+!!       call get_command_argument (i, value=fn)
+!!       ! leaf with any suffix removed
+!!       ! leaf with suffix retained
+!!       ! with suffix unless it is ".f90"
+!!       write(*,'(*(a,1x))') basename(fn), basename(fn,''), basename(fn,'.f90')
+!!       deallocate(fn)
+!!    enddo
+!!    end program demo_basename
+!!
+!!   Sample program executions:
+!!
+!!     $demo_basename /usr/bin/
+!!     bin bin bin
+!!     $demo_basename dir1/fred.x dir2/.y
+!!     fred fred.x fred.x
+!!     .y .y .y
+!!     $demo_basename stdio.h
+!!     stdio stdio.h stdio.h
+!!     $demo_basename /name.f90
+!!     name name.f90 name
+!!##SEE ALSO
+!!    basename(3c), basename(3c), readlink(3c), realpath(3c)
+!!##AUTHOR
+!!    John S. Urban
+!!##LICENSE
+!!    Public Domain
+!>
+!! PRODUCT:        CLI library utilities and examples
+!! PROGRAM:        basename(3f)
+!! DESCRIPTION:    strip last component from filename
+!!##VERSION:        1.0.0
+!!##DATE:           2015-06-26
+!! AUTHOR:         John S. Urban
+!! REPORTING BUGS: http://www.urbanjost.altervista.org/
+!! HOME PAGE:      http://www.urbanjost.altervista.org/index.html
+function basename(filename,suffix) result (leaf)
+implicit none
+
+! ident_9="@(#)M_io::basename(3f): strip last component from filename"
+
+character(len=*),intent(in)          :: filename
+character(len=*),intent(in),optional :: suffix
+character(len=:),allocatable         :: leaf
+integer                              :: iend
+integer                              :: i
+integer,parameter                    :: maxlen=4096
+character(len=maxlen)                :: name
+character(len=maxlen)                :: bname
+character(len=maxlen)                :: extension
+character(len=1)                 :: sep
+   sep=separator()
+   iend=len_trim(filename)
+   do i=iend,1,-1
+      if(filename(i:i).ne.sep)exit
+      iend=iend-1
+   enddo
+   call splitpath(filename(:iend),name=name,basename=bname,ext=extension)
+   if(present(suffix))then
+      leaf=merge(bname,name,suffix.eq.extension)
+   else
+      leaf=bname
+   endif
+   if(leaf.eq.'')leaf=name
+   leaf=trim(leaf)
+end function basename
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
@@ -2512,6 +2898,7 @@ end function dirname
 !!
 !!       program demo_fileopen
 !!       use M_io, only : fileopen, fileclose, print_inquire
+!!       implicit none
 !!       integer :: lun
 !!       lun=fileopen('fred.txt')
 !!       call print_inquire(lun)
@@ -2613,7 +3000,7 @@ logical                               :: verbose
    !  POSITION  =  ASIS        |  REWIND       |  APPEND
    !  STATUS    =  NEW         |  REPLACE      |  OLD     |  SCRATCH   | UNKNOWN
    if(ios_local.ne.0)then
-      write(*,*)'*fileopen* ',message
+      call journal('sc','*fileopen* ',message)
       lun=-1
    endif
    if(present(ios))then        ! caller has asked for status so let caller process any error
@@ -2651,8 +3038,11 @@ end function fileopen
 !!     use M_io, only : fileclose, fileopen
 !!     implicit none
 !!     integer :: lun
-!!     integer :: ios
-!!        lun=fileopen('<input.txt')
+!!     integer :: ios, ierr
+!!        lun=fileopen('<input.txt',ios=ierr)
+!!        if(ierr.ne.0)then
+!!           write(*,*)'<ERROR> opening file'
+!!        endif
 !!        ios=fileclose(lun)
 !!     end program demo_fileclose
 !!
@@ -2666,10 +3056,131 @@ integer                  :: ios
 character(len=256)       :: message
    close(unit=lun,iostat=ios,iomsg=message)
    if(ios.ne.0)then
-      write(*,*)'*fileclose* ',trim(message)
+      call journal('sc','*fileclose* ',message)
       stop
    endif
 end function fileclose
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+!>
+!!##NAME
+!!    filewrite(3f) - [M_io] A simple write of a CHARACTER array to a file
+!!    (LICENSE:PD)
+!!
+!!##SYNOPSIS
+!!
+!!     function filewrite(filename,data,status,position) result(ierr)
+!!
+!!      character(len=*),intent(in) :: filename
+!!      character(len=*),intent(in) :: data(:)
+!!      character(len=*),intent(in),optional :: status
+!!      character(len=*),intent(in),optional :: position
+!!      integer                     :: ierr
+!!##DESCRIPTION
+!!   A convenience procedure for writing a CHARACTER array as
+!!   a new file.
+!!##OPTION
+!!   FILENAME   file to create or write. If the name ends
+!!              in ">" the default for STATUS changes to
+!!              "REPLACE". If it ends ">>" STATUS changes to
+!!              "UNKNOWN" and the default POSTION changes to "APPEND".
+!!   DATA       CHARACTER array to write to file
+!!   STATUS     STATUS to use on OPEN(7f). Defaults to "NEW"
+!!              allowed values are  NEW|REPLACE|OLD|SCRATCH|UNKNOWN
+!!   POSITION   POSITION to use of OPEN(7f). Defaults to "REWIND".
+!!              allowed values are  ASIS|REWIND|APPEND
+!!##RETURNS
+!!   IERR       status value. Zero indicates no error occurred
+!!##EXAMPLE
+!!
+!!  Sample program:
+!!
+!!     program demo_filewrite
+!!     use M_io, only : filewrite
+!!     implicit none
+!!     integer :: ierr
+!!     character(len=:),allocatable :: data(:)
+!!        data=[ character(len=80) :: &
+!!             &'This is the text to write  ', &
+!!             &'into the file. It will be  ', &
+!!             &'trimmed on the right side. ', &
+!!             &' ', &
+!!             &'     That is all Folks!    ', &
+!!             &'']
+!!        ierr=filewrite('_scratch.txt',data)
+!!     end program demo_filewrite
+!!
+!!##AUTHOR
+!!    John S. Urban
+!!##LICENSE
+!!    Public Domain
+function filewrite(filename,filedata,status,position) result (ierr)
+! write filedata to file filename
+character(len=*),intent(in)           :: filename
+character(len=*),intent(in)           :: filedata(:)
+character(len=*),intent(in),optional  :: status
+character(len=*),intent(in),optional  :: position
+integer                               :: ierr
+integer                               :: lun, i, ios, ilen
+character(len=256)                    :: message
+character(len=:),allocatable          :: file
+character(len=:),allocatable          :: local_status
+character(len=:),allocatable          :: local_position
+character(len=:),allocatable          :: default_status
+character(len=:),allocatable          :: default_position
+   ierr=0
+   default_status='NEW'
+   default_position='REWIND'
+   file=trim(adjustl(filename))//'  '
+   ilen=max(len_trim(file),2)
+   if(file(ilen-1:ilen).eq.'>>')then
+      ilen=ilen-2
+      file=file(:ilen)
+      default_status='UNKNOWN'
+      default_position='APPEND'
+   elseif(file(ilen:ilen).eq.'>')then
+      ilen=ilen-1
+      file=file(:ilen)
+      default_status='REPLACE'
+   else
+      file=trim(file)
+   endif
+   if(present(position))then; local_position=position; else; local_position=default_position; endif
+   if(present(status))then;   local_status=status;     else; local_status=default_status;     endif
+   if(file.ne.' ')then
+      open(file=file, &
+      & newunit=lun, &
+      & form='formatted', &         !  FORM      =  FORMATTED   |  UNFORMATTED
+      & access='sequential', &      !  ACCESS    =  SEQUENTIAL  |  DIRECT       |  STREAM
+      & action='write', &           !  ACTION    =  READ|WRITE  |  READWRITE
+      & position=local_position, &  !  POSITION  =  ASIS        |  REWIND       |  APPEND
+      & status=local_status, &      !  STATUS    =  NEW         |  REPLACE      |  OLD     |  SCRATCH   | UNKNOWN
+      & iostat=ios, &
+      & iomsg=message)
+   else
+      lun=stdout
+      ios=0
+   endif
+   if(ios.ne.0)then
+      write(stderr,'(*(a,1x))')'*filewrite* error:',file,trim(message)
+      ierr=ios
+   else
+      do i=1,size(filedata)                                                    ! write file
+         write(lun,'(a)',iostat=ios,iomsg=message)trim(filedata(i))
+         if(ios.ne.0)then
+            write(stderr,'(*(a,1x))')'*filewrite* error:',file,trim(message)
+            ierr=ios
+            exit
+         endif
+      enddo
+   endif
+   close(unit=lun,iostat=ios,iomsg=message)                                 ! close file
+   if(ios.ne.0)then
+      write(stderr,'(*(a,1x))')'*filewrite* error:',trim(message)
+      ierr=ios
+   endif
+end function filewrite
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
@@ -2683,13 +3194,16 @@ end function fileclose
 !!    function filedelete(lun) result(ios)
 !!
 !!     integer,intent(in)    :: lun
+!!       or
+!!     character(len=*),intent(in)    :: filename
 !!     integer               :: ios
 !!
 !!##DESCRIPTION
 !!   A convenience command for deleting an OPEN(3f) file that leaves an
-!!   error message in the current journal file if active.
+!!   error message in the current journal file if active or a file by
+!!   filename.
 !!##OPTION
-!!   LUN  unit number of open file to delete
+!!   LUN  unit number of open file to delete or filename.
 !!##RETURNS
 !!   IOS  status returned by CLOSE().
 !!##EXAMPLE
@@ -2708,15 +3222,96 @@ end function fileclose
 !!    John S. Urban
 !!##LICENSE
 !!    Public Domain
-function filedelete(lun) result(ios)
+function filedelete_lun(lun) result(iostat)
 integer,intent(in)    :: lun
-integer               :: ios
+integer               :: iostat
 character(len=256)    :: message
-   close(unit=lun,iostat=ios,status='delete',iomsg=message)
-   if(ios.ne.0)then
-      write(*,*)'*filedelete* ',trim(message)
+   close(unit=lun,iostat=iostat,status='delete',iomsg=message)
+   if(iostat.ne.0)then
+      call journal('sc','*filedelete* ',message)
    endif
-end function filedelete
+end function filedelete_lun
+function filedelete_filename(filename) result(iostat)
+character(len=*),intent(in) :: filename
+integer                     :: number
+integer                     :: iostat
+character(len=256)          :: message
+logical                     :: opened
+logical                     :: exist
+   inquire(file=filename,opened=opened,iostat=iostat,exist=exist,number=number)
+   if(exist)then
+      if(.not.opened)then
+         open(newunit=number,iostat=iostat,file=filename)
+      endif
+      close(unit=number,iostat=iostat,status='delete',iomsg=message)
+      if(iostat.ne.0)then
+         call journal('sc','*filedelete* ',message)
+      endif
+   endif
+end function filedelete_filename
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+!>
+!!##NAME
+!!    joinpath(3f) - [M_io] join parts of a pathname together
+!!    (LICENSE:PD)
+!!
+!!##SYNOPSIS
+!!
+!!    function joinpath(a1,a2,a3,a4,a5,a6,a7,a8,a9)  result(path)
+!!
+!!     character(len=*), intent(in)           :: a1, a2
+!!     character(len=*), intent(in), optional :: a3, a4, a5, a6, a7, a8, a9
+!!     character(len=:), allocatable          :: path
+!!##DESCRIPTION
+!!##OPTIONS
+!!     a1,a2  the first two pathname sections to join. Required
+!!     a3-a9  additional optional sections to join
+!!##RETURNS
+!!     pathname sections joined together with trailing spaces removed from the ends
+!!     of sections and a separator (as returned by separator(3f) placed between
+!!     them, and duplicate adjacent separators removed accept for one beginning the
+!!     joined pathname.
+!!##EXAMPLE
+!!
+!!   Sample program
+!!
+!!      program demo_joinpath
+!!      use M_io, only : joinpath
+!!      implicit none
+!!         write(*,*)joinpath('/share/user','/man/','man3','joinpath.3m_io'//'.gz')
+!!      end program demo_joinpath
+!!##AUTHOR
+!!    John S. Urban
+!!##LICENSE
+!!    Public Domain
+!===================================================================================================================================
+function joinpath(a1,a2,a3,a4,a5,a6,a7,a8,a9) result(path)
+   ! Construct path by joining strings with os file separator
+   !
+   character(len=*), intent(in)           :: a1, a2
+   character(len=*), intent(in), optional :: a3, a4, a5, a6, a7, a8, a9
+   character(len=:), allocatable          :: path
+   character(len=1)                       :: filesep
+
+   filesep = separator()
+   if(a1.ne.'')then
+      path = trim(a1) // filesep // trim(a2)
+   else
+      path = trim(a2)
+   endif
+   if (present(a3)) path = path // filesep // trim(a3)
+   if (present(a4)) path = path // filesep // trim(a4)
+   if (present(a5)) path = path // filesep // trim(a5)
+   if (present(a6)) path = path // filesep // trim(a6)
+   if (present(a7)) path = path // filesep // trim(a7)
+   if (present(a8)) path = path // filesep // trim(a8)
+   if (present(a9)) path = path // filesep // trim(a9)
+   path=adjustl(path//'  ')
+   call substitute(path,filesep//filesep,filesep,start=2) ! some systems allow names starting with '//' or '\\'
+   path=trim(path)
+end function joinpath
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
@@ -2727,7 +3322,7 @@ end function filedelete
 !!
 !!##SYNOPSIS
 !!
-!!   splitpath(path,dir,name,basename,ext)
+!!   subroutine splitpath(path,dir,name,basename,ext)
 !!
 !!    integer,parameter :: maxlen=4096
 !!    character(len=maxlen),intent(in)  :: path
@@ -2746,8 +3341,8 @@ end function filedelete
 !!    This routine does not check the system for the existence or type of
 !!    the filename components; it merely parses a string.
 !!
-!!    Assumes leaf separator is a slash ('/') and that filename does not
-!!    contain trailing spaces.
+!!    Assumes leaf separator is a slash or backslash as determined by
+!!    separator(3f) and that filename does not contain trailing spaces.
 !!
 !!##OPTIONS
 !!    path      Path to be broken into components. It is assumed
@@ -2850,7 +3445,7 @@ end function filedelete
 subroutine splitpath(path,dir,name,basename,ext)
 implicit none
 
-!character(len=*),parameter::ident_9="@(#)M_io::splitpath(3f): split Unix pathname into components (dir,name,basename,extension)"
+! ident_10="@(#)M_io::splitpath(3f): split Unix pathname into components (dir,name,basename,extension)"
 
 !===================================================================================================================================
 character(len=*),intent(in)           :: path
@@ -2867,6 +3462,8 @@ character(len=len(path)+1)            :: path_local
 integer                               :: where
 integer                               :: i
 integer                               :: iend
+character(len=1)                 :: sep
+   sep=separator()
 !===================================================================================================================================
    path_local=path                           ! initialize variables
    dir_local=''
@@ -2881,7 +3478,7 @@ integer                               :: iend
       exit LOCAL
    endif
 !===================================================================================================================================
-   if(path_local(iend:iend).eq.'/')then      ! assume entire name is a directory if it ends in a slash
+   if(path_local(iend:iend).eq.sep)then      ! assume entire name is a directory if it ends in a slash
       if(iend.gt.1)then
          dir_local=path_local(:iend-1)
       else                                   ! if just a slash it means root directory so leave it as slash
@@ -2891,7 +3488,7 @@ integer                               :: iend
    endif
 !===================================================================================================================================
    TRIMSLASHES: do i=iend,1,-1               ! trim off trailing slashes even if duplicates
-      if(path_local(i:i).eq.'/')then
+      if(path_local(i:i).eq.sep)then
          path_local(i:i)=' '
          iend=i-1
       else
@@ -2901,11 +3498,11 @@ integer                               :: iend
    enddo TRIMSLASHES
 
    if(iend.eq.0)then                         ! path composed entirely of slashes.
-      dir_local='/'
+      dir_local=sep
       exit LOCAL
    endif
 !===================================================================================================================================
-   where=INDEX(path_local,'/',BACK=.true.)   ! find any right-most slash in remaining non-null name_local after trimming trailing slashes
+   where=INDEX(path_local,sep,BACK=.true.)   ! find any right-most slash in remaining non-null name_local after trimming trailing slashes
    if(where.le.0)then                        ! no slash in path so everything left is name_local
       name_local=path_local(:iend)                 ! this is name_local unless '.' or '..'
    else                                      ! last slash found
@@ -2919,8 +3516,8 @@ integer                               :: iend
       name_local=''
    case('.. ')
       if(dir_local.eq.'')then
-         if(path_local(1:1).eq.'/')then
-            dir_local='/'
+         if(path_local(1:1).eq.sep)then
+            dir_local=sep
          endif
       else
          dir_local=path_local
@@ -2953,8 +3550,8 @@ end subroutine splitpath
 !===================================================================================================================================
 !>
 !!##NAME
-!!     getline(3f) - [M_io] read a line from specified LUN into allocatable string up to line length limit
-!!     (LICENSE:PD)
+!!    getline(3f) - [M_io] read a line from specified LUN into allocatable string up to line length limit
+!!    (LICENSE:PD)
 !!
 !!##SYNTAX
 !!   function getline(line,lun) result(ier)
@@ -2964,12 +3561,14 @@ end subroutine splitpath
 !!    integer,intent(out)                      :: ier
 !!
 !!##DESCRIPTION
-!!
-!!    Read a line of any length up to programming environment's maximum
+!!    Read a line of any length up to programming environment maximum
 !!    line length. Requires Fortran 2003+.
 !!
 !!    It is primarily expected to be used when reading input which will
 !!    then be parsed.
+!!
+!!    The input file must have a PAD attribute of YES for the function
+!!    to work properly, which is typically true.
 !!
 !!    The simple use of a loop that repeatedly re-allocates a character
 !!    variable in addition to reading the input file one buffer at a
@@ -2978,12 +3577,10 @@ end subroutine splitpath
 !!    the output string with each buffer read.
 !!
 !!##OPTIONS
-!!
 !!    LINE   line read
 !!    LUN    optional LUN (Fortran logical I/O unit) number. Defaults
 !!           to stdin.
 !!##RETURNS
-!!
 !!    IER    zero unless an error occurred. If not zero, LINE returns the
 !!           I/O error message.
 !!
@@ -2992,23 +3589,25 @@ end subroutine splitpath
 !!   Sample program:
 !!
 !!    program demo_getline
+!!    use,intrinsic :: iso_fortran_env, only : stdin=>input_unit
 !!    use M_io, only : getline
 !!    implicit none
 !!    character(len=:),allocatable :: line
+!!       open(unit=stdin,pad='yes')
 !!       INFINITE: do while (getline(line)==0)
 !!          write(*,'(a)')'['//line//']'
 !!       enddo INFINITE
 !!    end program demo_getline
+!!
 !!##AUTHOR
 !!    John S. Urban
+!!
 !!##LICENSE
 !!    Public Domain
 function getline(line,lun) result(ier)
-use, intrinsic :: iso_fortran_env, only : INPUT_UNIT
 implicit none
 
-!character(len=*),parameter::ident_10="&
-!&@(#)M_io::getline(3f): read a line from specified LUN into allocatable string up to line length limit"
+! ident_11="@(#)M_io::getline(3f): read a line from specified LUN into allocatable string up to line length limit"
 
 character(len=:),allocatable,intent(out) :: line
 integer,intent(in),optional              :: lun
@@ -3028,6 +3627,7 @@ integer                                  :: lun_local
    else
       lun_local=INPUT_UNIT
    endif
+   open(lun_local,pad='yes')
 
    INFINITE: do                                                      ! read characters from line and append to result
       read(lun_local,iostat=ier,fmt='(a)',advance='no',size=isize,iomsg=message) buffer ! read next buffer (might use stream I/O for files
@@ -3052,19 +3652,23 @@ end function getline
 !!     (LICENSE:PD)
 !!
 !!##SYNTAX
-!!   function read_line(line,lun) result(ier)
+!!   function read_line(line,lun,ios) result(ier)
 !!
 !!    character(len=:),allocatable,intent(out) :: line
 !!    integer,intent(in),optional              :: lun
+!!    integer,optional                         :: ios
 !!    integer                                  :: ier
 !!
 !!##DESCRIPTION
 !!
-!!    Read a line of any length up to programming environment's maximum
+!!    Read a line of any length up to the programming environment maximum
 !!    line length. Requires Fortran 2003+.
 !!
 !!    It is primarily expected to be used when reading input which will
 !!    then be parsed.
+!!
+!!    The input file must have a PAD attribute of YES for the function to
+!!    work properly, which is typically true but can be set on an open file.
 !!
 !!    o Append lines that end in a backslash with next line
 !!    o Expand tabs
@@ -3072,23 +3676,25 @@ end function getline
 !!    o Remove trailing carriage return characters and white space
 !!
 !!    The simple use of a loop that repeatedly re-allocates a character
-!!    variable in addition to reading the input file one buffer at a
-!!    time could (depending on the programming environment used) be
-!!    inefficient, as it could reallocate and allocate memory used for
-!!    the output string with each buffer read.
+!!    variable in addition to reading the input file one buffer at a time
+!!    could (depending on the programming environment used) be inefficient,
+!!    as it could reallocate and allocate memory used for the output string
+!!    with each buffer read.
+!!
+!!##OPTIONS
+!!    LINE   the line read from the file.
+!!    LUN    The LUN (logical unit) to read from. Defaults to stdin.
+!!    IOS    status returned by READ(IOSTAT=IOS). If not zero, an error
+!!           occurred or an end-of-file or end-of-record was encountered.
+!!           This is the same value as returned by the function. See the
+!!           example program for a usage case.
+!!##RETURNS
+!!    IER    status returned by READ(IOSTAT=IER). If not zero, an error
+!!           occurred or an end-of-file or end-of-record was encountered.
 !!
 !!##EXAMPLE
 !!
 !!   Sample program:
-!!
-!!    program simple_read_line
-!!    use M_io, only : read_line
-!!    implicit none
-!!    character(len=:),allocatable :: line
-!!       INFINITE: do while (read_line(line)==0)
-!!          write(*,'(a)')'['//line//']'
-!!       enddo INFINITE
-!!    end program simple_read_line
 !!
 !!   Checking the error message and counting lines:
 !!
@@ -3099,36 +3705,31 @@ end function getline
 !!     use M_io, only : read_line
 !!     implicit none
 !!     character (len =: ), allocatable :: line
-!!     integer  ::  ios, icount=0
-!!        INFINITE: do while (isave (read_line (line), ios) == 0)
+!!     integer                          :: stat
+!!     integer                          :: icount=0
+!!        open(unit=stdin,pad='yes')
+!!        INFINITE: do while (read_line(line,ios=stat) == 0)
+!!           icount=icount
 !!           write (*, '(*(g0))') icount,' [',line,']'
 !!        enddo INFINITE
-!!        if ( .not.is_iostat_end(ios) ) then
-!!           write (stderr, '(*(g0))') 'error: line ',icount,'==>',trim (line)
+!!        if ( .not.is_iostat_end(stat) ) then
+!!           write (stderr, '(*(g0))') &
+!!           & 'error: line ',icount,'==>',trim (line)
 !!        endif
-!!     contains
-!!        integer function isave (iin, iout)
-!!        integer, intent (in) :: iin
-!!        integer, intent (out) :: iout
-!!           iout = iin
-!!           isave = iin
-!!           icount=icount+1
-!!        end function isave
 !!     end program demo_read_line
 !!
 !!##AUTHOR
 !!    John S. Urban
 !!##LICENSE
 !!    Public Domain
-function read_line(line,lun) result(ier)
-use, intrinsic :: iso_fortran_env, only : INPUT_UNIT
+function read_line(line,lun,ios) result(ier)
 implicit none
 
-!character(len=*),parameter::ident_11="&
-!&@(#)M_io::read_line(3f): read a line from specified LUN into allocatable string up to line length limit"
+! ident_12="@(#)M_io::read_line(3f): read a line from specified LUN into allocatable string up to line length limit"
 
 character(len=:),allocatable,intent(out) :: line
 integer,intent(in),optional              :: lun
+integer,optional                         :: ios
 integer                                  :: ier
 
 integer,parameter                        :: buflen=1024
@@ -3143,7 +3744,7 @@ integer                                  :: lun_local
    line_local=''
    ier=0
    lun_local=merge(lun,INPUT_UNIT,present(lun))
-
+   open(lun_local,pad='yes')
    INFINITE: do                                                           ! read characters from line and append to result
       read(lun_local,iostat=ier,fmt='(a)',advance='no',size=isize,iomsg=message) buffer ! read next buffer (might use stream I/O for
                                                                           ! files other than stdin so system line limit
@@ -3165,9 +3766,13 @@ integer                                  :: lun_local
      endif
    enddo INFINITE
    biggest=8*len(line_local)                                ! worst case is raw line is all tab characters
+   if(allocated(line))deallocate(line)
    allocate(character(len=biggest) :: line)
    call notabs(line_local,line,last)                        ! expand tabs, trim carriage returns, remove unprintable characters
    line=trim(line(:last))                                   ! trim line
+   if(present(ios))then
+      ios=ier
+   endif
 end function read_line
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
@@ -3215,17 +3820,19 @@ end function read_line
 !!    Public Domain
 function get_tmp() result(tname)
 
-!character(len=*),parameter::ident_12="@(#)M_io::get_tmp(3f): Return the name of the scratch directory"
+! ident_13="@(#)M_io::get_tmp(3f): Return the name of the scratch directory"
 
 character(len=:),allocatable :: tname
 integer                      :: lngth
 character(len=10),parameter  :: names(4)=["TMPDIR    ","TEMP      ","TEMPDIR   ","TMP       "]
 integer                      :: i
+character(len=1)             :: sep
+   sep=separator()
    tname=''
    do i=1,size(names)
       call get_environment_variable(name=names(i), length=lngth)
       if(lngth.ne.0)then
-         deallocate(tname)
+         if(allocated(tname))deallocate(tname)
          allocate(character(len=lngth) :: tname)
          call get_environment_variable(name=names(i), value=tname)
          exit
@@ -3236,859 +3843,85 @@ integer                      :: i
       lngth=len_trim(tname)
    endif
    if(scan(tname(lngth:lngth),'/\').eq.0)then
-      tname=tname//'/'
+      tname=tname//sep
    endif
 end function get_tmp
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
-! COPIES FROM OTHER MODULES
-!===================================================================================================================================
-function merge_str(str1,str2,expr) result(strout)
-! for some reason the MERGE(3f) intrinsic requires the strings it compares to be of equal length
-! make an alias for MERGE(3f) that makes the lengths the same before doing the comparison by padding the shorter one with spaces
-
-!character(len=*),parameter::ident_37="@(#)M_strings::merge_str(3f): pads first and second arguments to MERGE(3f) to same length"
-
-character(len=*),intent(in)     :: str1
-character(len=*),intent(in)     :: str2
-logical,intent(in)              :: expr
-character(len=:),allocatable    :: strout
-integer                         :: big
-   big=max(len(str1),len(str2))
-   strout=trim(merge(lenset(str1,big),lenset(str2,big),expr))
-end function merge_str
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
-subroutine split(input_line,array,delimiters,order,nulls)
-!-----------------------------------------------------------------------------------------------------------------------------------
-
-!character(len=*),parameter::ident_7="&
-!&@(#)M_strings::split(3f): parse string on delimiter characters and store tokens into an allocatable array"
-
-!  John S. Urban
-!-----------------------------------------------------------------------------------------------------------------------------------
-intrinsic index, min, present, len
-!-----------------------------------------------------------------------------------------------------------------------------------
-!  given a line of structure " par1 par2 par3 ... parn " store each par(n) into a separate variable in array.
-!    o by default adjacent delimiters in the input string do not create an empty string in the output array
-!    o no quoting of delimiters is supported
-character(len=*),intent(in)              :: input_line  ! input string to tokenize
-character(len=*),optional,intent(in)     :: delimiters  ! list of delimiter characters
-character(len=*),optional,intent(in)     :: order       ! order of output array sequential|[reverse|right]
-character(len=*),optional,intent(in)     :: nulls       ! return strings composed of delimiters or not ignore|return|ignoreend
-character(len=:),allocatable,intent(out) :: array(:)    ! output array of tokens
-!-----------------------------------------------------------------------------------------------------------------------------------
-integer                       :: n                      ! max number of strings INPUT_LINE could split into if all delimiter
-integer,allocatable           :: ibegin(:)              ! positions in input string where tokens start
-integer,allocatable           :: iterm(:)               ! positions in input string where tokens end
-character(len=:),allocatable  :: dlim                   ! string containing delimiter characters
-character(len=:),allocatable  :: ordr                   ! string containing order keyword
-character(len=:),allocatable  :: nlls                   ! string containing nulls keyword
-integer                       :: ii,iiii                ! loop parameters used to control print order
-integer                       :: icount                 ! number of tokens found
-integer                       :: ilen                   ! length of input string with trailing spaces trimmed
-integer                       :: i10,i20,i30            ! loop counters
-integer                       :: icol                   ! pointer into input string as it is being parsed
-integer                       :: idlim                  ! number of delimiter characters
-integer                       :: ifound                 ! where next delimiter character is found in remaining input string data
-integer                       :: inotnull               ! count strings not composed of delimiters
-integer                       :: ireturn                ! number of tokens returned
-integer                       :: imax                   ! length of longest token
-!-----------------------------------------------------------------------------------------------------------------------------------
-   ! decide on value for optional DELIMITERS parameter
-   if (present(delimiters)) then                                     ! optional delimiter list was present
-      if(delimiters.ne.'')then                                       ! if DELIMITERS was specified and not null use it
-         dlim=delimiters
-      else                                                           ! DELIMITERS was specified on call as empty string
-         dlim=' '//char(9)//char(10)//char(11)//char(12)//char(13)//char(0) ! use default delimiter when not specified
-      endif
-   else                                                              ! no delimiter value was specified
-      dlim=' '//char(9)//char(10)//char(11)//char(12)//char(13)//char(0)    ! use default delimiter when not specified
-   endif
-   idlim=len(dlim)                                                   ! dlim a lot of blanks on some machines if dlim is a big string
-!-----------------------------------------------------------------------------------------------------------------------------------
-   if(present(order))then; ordr=lower(adjustl(order)); else; ordr='sequential'; endif ! decide on value for optional ORDER parameter
-   if(present(nulls))then; nlls=lower(adjustl(nulls)); else; nlls='ignore'    ; endif ! optional parameter
-!-----------------------------------------------------------------------------------------------------------------------------------
-   n=len(input_line)+1                        ! max number of strings INPUT_LINE could split into if all delimiter
-   allocate(ibegin(n))                        ! allocate enough space to hold starting location of tokens if string all tokens
-   allocate(iterm(n))                         ! allocate enough space to hold ending location of tokens if string all tokens
-   ibegin(:)=1
-   iterm(:)=1
-!-----------------------------------------------------------------------------------------------------------------------------------
-   ilen=len(input_line)                                           ! ILEN is the column position of the last non-blank character
-   icount=0                                                       ! how many tokens found
-   inotnull=0                                                     ! how many tokens found not composed of delimiters
-   imax=0                                                         ! length of longest token found
-!-----------------------------------------------------------------------------------------------------------------------------------
-   select case (ilen)
-!-----------------------------------------------------------------------------------------------------------------------------------
-   case (:0)                                                      ! command was totally blank
-!-----------------------------------------------------------------------------------------------------------------------------------
-   case default                                                   ! there is at least one non-delimiter in INPUT_LINE if get here
-      icol=1                                                      ! initialize pointer into input line
-      INFINITE: do i30=1,ilen,1                                   ! store into each array element
-         ibegin(i30)=icol                                         ! assume start new token on the character
-         if(index(dlim(1:idlim),input_line(icol:icol)).eq.0)then  ! if current character is not a delimiter
-            iterm(i30)=ilen                                       ! initially assume no more tokens
-            do i10=1,idlim                                        ! search for next delimiter
-               ifound=index(input_line(ibegin(i30):ilen),dlim(i10:i10))
-               IF(ifound.gt.0)then
-                  iterm(i30)=min(iterm(i30),ifound+ibegin(i30)-2)
-               endif
-            enddo
-            icol=iterm(i30)+2                                     ! next place to look as found end of this token
-            inotnull=inotnull+1                                   ! increment count of number of tokens not composed of delimiters
-         else                                                     ! character is a delimiter for a null string
-            iterm(i30)=icol-1                                     ! record assumed end of string. Will be less than beginning
-            icol=icol+1                                           ! advance pointer into input string
-         endif
-         imax=max(imax,iterm(i30)-ibegin(i30)+1)
-         icount=i30                                               ! increment count of number of tokens found
-         if(icol.gt.ilen)then                                     ! no text left
-            exit INFINITE
-         endif
-      enddo INFINITE
-!-----------------------------------------------------------------------------------------------------------------------------------
-   end select
-!-----------------------------------------------------------------------------------------------------------------------------------
-   select case (trim(adjustl(nlls)))
-   case ('ignore','','ignoreend')
-      ireturn=inotnull
-   case default
-      ireturn=icount
-   end select
-   allocate(character(len=imax) :: array(ireturn))                ! allocate the array to return
-   !allocate(array(ireturn))                                       ! allocate the array to turn
-!-----------------------------------------------------------------------------------------------------------------------------------
-   select case (trim(adjustl(ordr)))                              ! decide which order to store tokens
-   case ('reverse','right') ; ii=ireturn ; iiii=-1                ! last to first
-   case default             ; ii=1       ; iiii=1                 ! first to last
-   end select
-!-----------------------------------------------------------------------------------------------------------------------------------
-   do i20=1,icount                                                ! fill the array with the tokens that were found
-      if(iterm(i20).lt.ibegin(i20))then
-         select case (trim(adjustl(nlls)))
-         case ('ignore','','ignoreend')
-         case default
-            array(ii)=' '
-            ii=ii+iiii
-         end select
-      else
-         array(ii)=input_line(ibegin(i20):iterm(i20))
-         ii=ii+iiii
-      endif
-   enddo
-!-----------------------------------------------------------------------------------------------------------------------------------
-   end subroutine split
-!===================================================================================================================================
-!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
-!===================================================================================================================================
-elemental pure function upper(str,begin,end) result (string)
-
-!character(len=*),parameter::ident_21="@(#)M_strings::upper(3f): Changes a string to uppercase"
-
-character(*), intent(In)      :: str                 ! inpout string to convert to all uppercase
-integer, intent(in), optional :: begin,end
-character(len(str))           :: string              ! output string that contains no miniscule letters
-integer                       :: i                   ! loop counter
-integer                       :: ibegin,iend
-   string = str                                      ! initialize output string to input string
-
-   ibegin = 1
-   if (present(begin))then
-      ibegin = max(ibegin,begin)
-   endif
-
-   iend = len_trim(str)
-   if (present(end))then
-      iend= min(iend,end)
-   endif
-
-   do i = ibegin, iend                               ! step thru each letter in the string in specified range
-       select case (str(i:i))
-       case ('a':'z')                                ! located miniscule letter
-          string(i:i) = char(iachar(str(i:i))-32)    ! change miniscule letter to uppercase
-       end select
-   end do
-
-end function upper
-!===================================================================================================================================
-!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
-!===================================================================================================================================
-elemental pure function lower(str,begin,end) result (string)
-
-!character(len=*),parameter::ident_22="@(#)M_strings::lower(3f): Changes a string to lowercase over specified range"
-
-character(*), intent(In)     :: str
-character(len(str))          :: string
-integer,intent(in),optional  :: begin, end
-integer                      :: i
-integer                      :: ibegin, iend
-   string = str
-
-   ibegin = 1
-   if (present(begin))then
-      ibegin = max(ibegin,begin)
-   endif
-
-   iend = len_trim(str)
-   if (present(end))then
-      iend= min(iend,end)
-   endif
-
-   do i = ibegin, iend                               ! step thru each letter in the string in specified range
-      select case (str(i:i))
-      case ('A':'Z')
-         string(i:i) = char(iachar(str(i:i))+32)     ! change letter to miniscule
-      case default
-      end select
-   end do
-
-end function lower
-!===================================================================================================================================
-!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
-!===================================================================================================================================
-pure function s2a(string)  RESULT (array)
-
-!character(len=*),parameter::ident_24="@(#)M_strings::s2a(3fp): function to copy string(1:Clen(string)) to char array"
-
-character(len=*),intent(in) :: string
-character(len=1)            :: array(len(string))
-integer                     :: i
-! ----------------------------------------------------------------------------------------------------------------------------------
-   forall(i=1:len(string)) array(i) = string(i:i)
-! ----------------------------------------------------------------------------------------------------------------------------------
-end function s2a
-!===================================================================================================================================
-!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
-!===================================================================================================================================
-subroutine notabs(INSTR,OUTSTR,ILEN)
-
-!character(len=*),parameter::ident_31="&
-!&@(#)M_strings::notabs(3f): convert tabs to spaces while maintaining columns, remove CRLF chars"
-
-CHARACTER(LEN=*),INTENT(IN)   :: instr        ! input line to scan for tab characters
-CHARACTER(LEN=*),INTENT(OUT)  :: outstr       ! tab-expanded version of INSTR produced
-INTEGER,INTENT(OUT)           :: ilen         ! column position of last character put into output string
-                                              ! that is, ILEN holds the position of the last non-blank character in OUTSTR
-!===================================================================================================================================
-INTEGER,PARAMETER             :: tabsize=8    ! assume a tab stop is set every 8th column
-INTEGER                       :: ipos         ! position in OUTSTR to put next character of INSTR
-INTEGER                       :: lenin        ! length of input string trimmed of trailing spaces
-INTEGER                       :: lenout       ! number of characters output string can hold
-INTEGER                       :: istep        ! counter that advances thru input string INSTR one character at a time
-CHARACTER(LEN=1)              :: c            ! character in input line being processed
-INTEGER                       :: iade         ! ADE (ASCII Decimal Equivalent) of character being tested
-!===================================================================================================================================
-   IPOS=1                                     ! where to put next character in output string OUTSTR
-   lenin=LEN(instr)                           ! length of character variable INSTR
-   lenin=LEN_TRIM(instr(1:lenin))             ! length of INSTR trimmed of trailing spaces
-   lenout=LEN(outstr)                         ! number of characters output string OUTSTR can hold
-   OUTSTR=" "                                 ! this SHOULD blank-fill string, a buggy machine required a loop to set all characters
-!===================================================================================================================================
-      SCAN_LINE: DO istep=1,lenin             ! look through input string one character at a time
-         c=instr(istep:istep)                 ! get next character
-         iade=ICHAR(c)                        ! get ADE of the character
-         expand_tabs : SELECT CASE (iade)     ! take different actions depending on which character was found
-         CASE(9)                              ! test if character is a tab and move pointer out to appropriate column
-            ipos = ipos + (tabsize - (MOD(ipos-1,tabsize)))
-         CASE(10,13)                          ! convert carriage-return and new-line to space ,typically to handle DOS-format files
-            ipos=ipos+1
-         CASE DEFAULT                         ! c is anything else other than a tab,newline,or return  insert it in output string
-            IF(ipos > lenout)THEN
-               write(*,*)"*notabs* output string overflow"
-               EXIT
-            ELSE
-               outstr(ipos:ipos)=c
-               ipos=ipos+1
-            ENDIF
-         END SELECT expand_tabs
-      enddo SCAN_LINE
-!===================================================================================================================================
-      ipos=MIN(ipos,lenout)                   ! tabs or newline or return characters or last character might have gone too far
-      ilen=LEN_TRIM(outstr(:ipos))            ! trim trailing spaces
-!===================================================================================================================================
-END SUBROUTINE notabs
-!===================================================================================================================================
-!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
-!===================================================================================================================================
-! NAME
-!    basename(3f) - [M_io] return last component from filename
-!    (LICENSE:PD)
-! 
-! SYNOPSIS
-!    function basename(FILENAME,SUFFIX) result (LEAF)
-! 
-!      character(len=:),allocatable :: FILENAME
-!      character(len=*),intent(in),optional :: SUFFIX
-!      character(len=*),intent(in) :: LEAF
-! 
-! DESCRIPTION
-!    Output LEAF of filename with directory paths removed.
-! 
-!    Assumes leaf separator is a slash or backslash as determined by
-!    separator(3f) and that filename does not contain trailing spaces.
-! 
-! OPTIONS
-!      FILENAME   pathname to extract the last leaf from
-!      SUFFIX     suffix to remove. If not present
-!                 the rightmost ".string" string is removed.
-!                 If present the LEAF is returned with any matching
-!                 suffix removed.
-! 
-! RETURNS
-!      LEAF  returned leaf name
-! 
-! EXAMPLES
-!   Sample program:
-! 
-!    program demo_basename
-!    use M_io, only : basename
-!    implicit none
-!    character(len=:),allocatable :: fn
-!    integer                      :: filename_length
-!    integer                      :: i
-!    ! get pathname from command line arguments
-!    do i = 1, command_argument_count()
-!       call get_command_argument (i, length=filename_length)
-!       if(allocated(fn))deallocate(fn)
-!       allocate(character(len=filename_length) :: fn)
-!       call get_command_argument (i, value=fn)
-!       ! leaf with any suffix removed
-!       ! leaf with suffix retained
-!       ! with suffix unless it is ".f90"
-!       write(*,'(*(a,1x))') basename(fn), basename(fn,''), basename(fn,'.f90')
-!       deallocate(fn)
-!    enddo
-!    end program demo_basename
-! 
-!   Sample program executions:
-! 
-!     $demo_basename /usr/bin/
-!     bin bin bin
-!     $demo_basename dir1/fred.x dir2/.y
-!     fred fred.x fred.x
-!     .y .y .y
-!     $demo_basename stdio.h
-!     stdio stdio.h stdio.h
-!     $demo_basename /name.f90
-!     name name.f90 name
-! SEE ALSO
-!    basename(3c), basename(3c), readlink(3c), realpath(3c)
-! AUTHOR
-!    John S. Urban
-! LICENSE
-!    Public Domain
-! PRODUCT:        CLI library utilities and examples
-! PROGRAM:        basename(3f)
-! DESCRIPTION:    strip last component from filename
-! VERSION:        1.0.0
-! DATE:           2015-06-26
-! AUTHOR:         John S. Urban
-! REPORTING BUGS: http://www.urbanjost.altervista.org/
-! HOME PAGE:      http://www.urbanjost.altervista.org/index.html
-function basename(filename,suffix) result (leaf)
-implicit none
-
-! ident_9="@(#)M_io::basename(3f): strip last component from filename"
-
-character(len=*),intent(in)          :: filename
-character(len=*),intent(in),optional :: suffix
-character(len=:),allocatable         :: leaf
-integer                              :: iend
-integer                              :: i
-integer,parameter                    :: maxlen=4096
-character(len=maxlen)                :: name
-character(len=maxlen)                :: bname
-character(len=maxlen)                :: extension
-character(len=1)                 :: sep
-   sep=separator()
-   iend=len_trim(filename)
-   do i=iend,1,-1
-      if(filename(i:i).ne.sep)exit
-      iend=iend-1
-   enddo
-   call splitpath(filename(:iend),name=name,basename=bname,ext=extension)
-   if(present(suffix))then
-      leaf=merge(bname,name,suffix.eq.extension)
-   else
-      leaf=bname
-   endif
-   if(leaf.eq.'')leaf=name
-   leaf=trim(leaf)
-end function basename
-!===================================================================================================================================
-!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
-!===================================================================================================================================
-! NAME
-!    filewrite(3f) - [M_io] A simple write of a CHARACTER array to a file
-!    (LICENSE:PD)
-! 
-! SYNOPSIS
-!     function filewrite(filename,data,status) result(ierr)
-! 
-!      character(len=*),intent(in) :: filename
-!      character(len=*),intent(in) :: data(:)
-!      character(len=*),intent(in),optional :: status
-!      character(len=*),intent(in),optional :: position
-!      integer                     :: ierr
-! DESCRIPTION
-!   A convenience procedure for writing a CHARACTER array as
-!   a new file.
-! OPTION
-!   FILENAME   file to create or write. If the name ends
-!              in ">" the default for STATUS changes to
-!              "REPLACE". If it ends ">>" STATUS changes to
-!              "UNKNOWN" and the default POSTION changes to "APPEND".
-!   DATA       CHARACTER array to write to file
-!   STATUS     STATUS to use on OPEN(7f). Defaults to "NEW"
-!              allowed values are  NEW|REPLACE|OLD|SCRATCH|UNKNOWN
-!   POSITION   POSITION to use of OPEN(7f). Defaults to "REWIND".
-!              allowed values are  ASIS|REWIND|APPEND
-! RETURNS
-!   IERR       status value. Zero indicates no error occurred
-! EXAMPLE
-!  Sample program:
-! 
-!     program demo_filewrite
-!     use M_io, only : filewrite
-!     implicit none
-!     integer :: ierr
-!     character(len=:),allocatable :: data(:)
-!        data=[ character(len=80) :: &
-!             &'This is the text to write  ', &
-!             &'into the file. It will be  ', &
-!             &'trimmed on the right side. ', &
-!             &' ', &
-!             &'     That is all Folks!    ', &
-!             &'']
-!        ierr=filewrite('_scratch.txt',data)
-!     end program demo_filewrite
-! 
-! AUTHOR
-!    John S. Urban
-! LICENSE
-!    Public Domain
-function filewrite(filename,filedata,status,position) result (ierr)
-use,intrinsic :: iso_fortran_env, only : stdin=>input_unit, stdout=>output_unit, stderr=>error_unit
-! write filedata to file filename
-character(len=*),intent(in)           :: filename
-character(len=*),intent(in)           :: filedata(:)
-character(len=*),intent(in),optional  :: status
-character(len=*),intent(in),optional  :: position
-integer                               :: ierr
-integer                               :: lun, i, ios, ilen
-character(len=256)                    :: message
-character(len=:),allocatable          :: file
-character(len=:),allocatable          :: local_status
-character(len=:),allocatable          :: local_position
-character(len=:),allocatable          :: default_status
-character(len=:),allocatable          :: default_position
-   ierr=0
-   default_status='NEW'
-   default_position='REWIND'
-   file=trim(adjustl(filename))//'  '
-   ilen=max(len_trim(file),2)
-   if(file(ilen-1:ilen).eq.'>>')then
-      ilen=ilen-2
-      file=file(:ilen)
-      default_status='UNKNOWN'
-      default_position='APPEND'
-   elseif(file(ilen:ilen).eq.'>')then
-      ilen=ilen-1
-      file=file(:ilen)
-      default_status='REPLACE'
-   else
-      file=trim(file)
-   endif
-   if(present(position))then; local_position=position; else; local_position=default_position; endif
-   if(present(status))then;   local_status=status;     else; local_status=default_status;     endif
-   if(file.ne.' ')then
-      open(file=file, &
-      & newunit=lun, &
-      & form='formatted', &         !  FORM      =  FORMATTED   |  UNFORMATTED
-      & access='sequential', &      !  ACCESS    =  SEQUENTIAL  |  DIRECT       |  STREAM
-      & action='write', &           !  ACTION    =  READ|WRITE  |  READWRITE
-      & position=local_position, &  !  POSITION  =  ASIS        |  REWIND       |  APPEND
-      & status=local_status, &      !  STATUS    =  NEW         |  REPLACE      |  OLD     |  SCRATCH   | UNKNOWN
-      & iostat=ios, &
-      & iomsg=message)
-   else
-      lun=stdout
-      ios=0
-   endif
-   if(ios.ne.0)then
-      write(stderr,'(*(a,1x))')'*filewrite* error:',file,trim(message)
-      ierr=ios
-   else
-      do i=1,size(filedata)                                                    ! write file
-         write(lun,'(a)',iostat=ios,iomsg=message)trim(filedata(i))
-         if(ios.ne.0)then
-            write(stderr,'(*(a,1x))')'*filewrite* error:',file,trim(message)
-            ierr=ios
-            exit
-         endif
-      enddo
-   endif
-   close(unit=lun,iostat=ios,iomsg=message)                                 ! close file
-   if(ios.ne.0)then
-      write(stderr,'(*(a,1x))')'*filewrite* error:',trim(message)
-      ierr=ios
-   endif
-end function filewrite
-!===================================================================================================================================
-!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
-!===================================================================================================================================
-! NAME
-!    joinpath(3f) - [M_io] join parts of a pathname together
-!    (LICENSE:PD)
-! 
-! SYNOPSIS
-!    function joinpath(a1,a2,a3,a4,a5,a6,a7,a8,a9)  result(path)
-! 
-!     character(len=*), intent(in)           :: a1, a2
-!     character(len=*), intent(in), optional :: a3, a4, a5, a6, a7, a8, a9
-!     character(len=:), allocatable          :: path
-! DESCRIPTION
-! OPTIONS
-!     a1,a2  the first two pathname sections to join. Required
-!     a3-a9  additional optional sections to join
-! RETURNS
-!     pathname sections joined together with trailing spaces removed from the ends
-!     of sections and a separator (as returned by separator(3f) placed between
-!     them, and duplicate adjacent separators removed accept for one beginning the
-!     joined pathname.
-! EXAMPLE
-!   Sample program
-! 
-!      program demo_joinpath
-!      use M_io, only : joinpath
-!      implicit none
-!         write(*,*)joinpath('/share/user','/man/','man3','joinpath.3m_io'//'.gz')
-!      end program demo_joinpath
-! AUTHOR
-!    John S. Urban
-! LICENSE
-!    Public Domain
-!===================================================================================================================================
-function joinpath(a1,a2,a3,a4,a5,a6,a7,a8,a9) result(path)
-   ! Construct path by joining strings with os file separator
-   !
-   character(len=*), intent(in)           :: a1, a2
-   character(len=*), intent(in), optional :: a3, a4, a5, a6, a7, a8, a9
-   character(len=:), allocatable          :: path
-   character(len=1)                       :: filesep
-
-   filesep = separator()
-   if(a1.ne.'')then
-      path = trim(a1) // filesep // trim(a2)
-   else
-      path = trim(a2)
-   endif
-   if (present(a3)) path = path // filesep // trim(a3)
-   if (present(a4)) path = path // filesep // trim(a4)
-   if (present(a5)) path = path // filesep // trim(a5)
-   if (present(a6)) path = path // filesep // trim(a6)
-   if (present(a7)) path = path // filesep // trim(a7)
-   if (present(a8)) path = path // filesep // trim(a8)
-   if (present(a9)) path = path // filesep // trim(a9)
-   path=adjustl(path//'  ')
-   call substitute(path,filesep//filesep,filesep,start=2) ! some systems allow names starting with '//' or '\\'
-   path=trim(path)
-end function joinpath
-!===================================================================================================================================
-!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
-!===================================================================================================================================
-! NAME
-!    separator(3f) - [M_io] try to determine pathname directory separator character
-!    (LICENSE:PD)
-! 
-! SYNOPSIS
-!    function separator() result(sep)
-! 
-!     character(len=1) :: sep
-! 
-! DESCRIPTION
-!    First using the name the program was invoked with, then the name
-!    returned by an INQUIRE(3f) of that name, then ".\NAME" and "./NAME"
-!    try to determine the seperator character used to separate directory
-!    names from file basenames.  Can be very system dependent. If the
-!    queries fail the default returned is "/".
-! 
-! EXAMPLE
-!   sample usage
-! 
-!    program demo_separator
-!    use M_io, separator
-!       write(*,*)'separator=',separator()
-!    end program demo_separator
-function separator() result(sep)
-! use the pathname returned as arg0 to determine pathname separator
-implicit none
-character(len=:),allocatable :: arg0
-integer                      :: arg0_length
-integer                      :: istat
-logical                      :: existing
-character(len=1)             :: sep
-!*ifort_bug*!character(len=1),save        :: sep_cache=' '
-character(len=4096)          :: name
-character(len=:),allocatable :: fname
-
-   !*ifort_bug*!   if(sep_cache.ne.' ')then  ! use cached value. NOTE:  A parallel code might theoretically use multiple OS
-   !*ifort_bug*!      sep=sep_cache
-   !*ifort_bug*!      return
-   !*ifort_bug*!   endif
-
-   arg0_length=0
-   name=' '
-   call get_command_argument(0,length=arg0_length,status=istat)
-   if(allocated(arg0))deallocate(arg0)
-   allocate(character(len=arg0_length) :: arg0)
-   call get_command_argument(0,arg0,status=istat)
-   ! check argument name
-   if(index(arg0,'\').ne.0)then
-      sep='\'
-   elseif(index(arg0,'/').ne.0)then
-      sep='/'
-   else
-      ! try name returned by INQUIRE(3f)
-      existing=.false.
-      name=' '
-      inquire(file=arg0,iostat=istat,exist=existing,name=name)
-      if(index(name,'\').ne.0)then
-         sep='\'
-      elseif(index(name,'/').ne.0)then
-         sep='/'
-      else
-         ! well, try some common syntax and assume in current directory
-         fname='.\'//arg0
-         inquire(file=fname,iostat=istat,exist=existing)
-         if(existing)then
-            sep='/'
-         else
-            fname='./'//arg0
-            inquire(file=fname,iostat=istat,exist=existing)
-            if(existing)then
-               sep='/'
-            else
-               !*!write(*,*)'<WARNING>unknown system directory path separator'
-               sep='/'
-            endif
-         endif
-      endif
-   endif
-   !*ifort_bug*!sep_cache=sep
-end function separator
-!===================================================================================================================================
-!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
-!===================================================================================================================================
-! NAME
-!    getname(3f) - [M_system:ENVIRONMENT] get environment variable
-!                   from Fortran by calling get_environment_variable(3f)
-!    (LICENSE:PD)
-! 
-! SYNOPSIS
-!    function getname() result(name)
-! 
-!     character(len=:),allocatable         :: getname
-! 
-! DESCRIPTION
-!    The getname() returns the name of the current executable using
-!    get_command_argument(3f) and inquire(3f).
-! 
-! EXAMPLE
-!    Sample getting a pathname of current executable:
-! 
-!      program demo_getname
-!      use M_system, only : getname
-!      implicit none
-!         write(*,*)'Running',getname()
-!      end program demo_getname
-! 
-! AUTHOR
-!        John S. Urban
-! 
-! LICENSE
-!        Public Domain
-function getname() result(name)
-! get the pathname of arg0
-implicit none
-character(len=:),allocatable :: arg0
-integer                      :: arg0_length
-integer                      :: istat
-character(len=4096)          :: long_name
-character(len=:),allocatable :: name
-   arg0_length=0
-   name=''
-   long_name=''
-   call get_command_argument(0,length=arg0_length,status=istat)
-   if(istat.eq.0)then
-      if(allocated(arg0))deallocate(arg0)
-      allocate(character(len=arg0_length) :: arg0)
-      call get_command_argument(0,arg0,status=istat)
-      if(istat.eq.0)then
-         inquire(file=arg0,iostat=istat,name=long_name)
-         name=trim(long_name)
-      else
-         name=arg0
-      endif
-   endif
-end function getname
-!===================================================================================================================================
-!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
-!===================================================================================================================================
-! NAME
-!     which(3f) - [M_io] given a command name find the pathname by searching
-!                 the directories in the environment variable $PATH
-!     (LICENSE:PD)
-! 
-! SYNTAX
-!   function which(command) result(pathname)
-! 
-!    character(len=*),intent(in)  :: command
-!    character(len=:),allocatable :: pathname
-! 
-! DESCRIPTION
-! 
-!    Given a command name find the first file with that name in the directories
-!    specified by the environment variable $PATH.
-! 
-! 
-! OPTIONS
-!    COMMAND   the command to search for
-! RETURNS
-!    PATHNAME  the first pathname found in the current user path. Returns blank
-!              if the command is not found.
-! 
-! EXAMPLE
-!   Sample program:
-! 
-!   Checking the error message and counting lines:
-! 
-!     program demo_which
-!     use M_io, only : which
-!     implicit none
-!        write(*,*)'ls is',which('ls')
-!        write(*,*)'dir is',which('dir')
-!        write(*,*)'install is',which('install')
-!     end program demo_which
-! 
-! AUTHOR
-!    John S. Urban
-! LICENSE
-!    Public Domain
-function which(command) result(pathname)
-character(len=*),intent(in)         :: command
-character(len=:),allocatable        :: pathname
-character(len=:),allocatable        :: checkon
-
-character(len=:),allocatable        :: path
-character(len=:),allocatable        :: paths(:)
-character(len=256)                  :: message
-character(len=1)                    :: sep
-integer                             :: howbig, stat, i
-logical                             :: existing
-   pathname=''
-   ! get length required to hold value
-   call get_environment_variable('PATH', length=howbig,status=stat)
-   select case (stat)
-   case (1)
-      print *, "<WARNING>*which*:PATH is not defined in the environment. Strange..."
-   case (2)
-      print *, "<WARNING>*which*:This processor doesn't support environment variables. Boooh!"
-   case default
-      allocate(character(len=howbig) :: path)  ! make string to hold value of sufficient size
-      call get_environment_variable('PATH', path) ! get value
-      sep=separator()
-      sep=merge('%',':',sep.eq.'\')
-      call split(path,paths,delimiters=sep)
-      existing=.false.
-      do i=1,size(paths)
-         checkon=joinpath(paths(i),command)
-         inquire(file=checkon,exist=existing,iostat=stat,iomsg=message)
-         if(stat.ne.0)then
-            write(*,'(a,a)')'<WARNING>*which*',trim(message)
-         endif
-         if(existing)then
-            pathname=checkon
-            exit
-         endif
-      enddo
-   end select
-end function which
-!===================================================================================================================================
-!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
-!===================================================================================================================================
-! NAME
-! rd(3f) - [M_io] ask for string from standard input with user-definable prompt
-! (LICENSE:PD)
-! 
-!   function rd(prompt,default) result(strout)
-! 
-!    character(len=*),intent(in)              :: prompt
-! 
-!    character(len=*),intent(in)              :: default
-!          or
-!    integer,intent(in)                       :: default
-!          or
-!    real,intent(in)                          :: default
-!          or
-!    doubleprecision,intent(in)               :: default
-! 
-!    character(len=:),allocatable,intent(out) :: strout
-! 
-! DESCRIPTION
-!    Ask for string or value from standard input with user-definable prompt
-!    up to 20 times.
-! 
-!    Do not use the function in an I/O statement as not all versions of
-!    Fortran support this form of recursion. Numeric values may be input
-!    in standard INTEGER, REAL, and DOUBLEPRECISION formats or as whole
-!    numbers in base 2 to 36 in the format BASE#VALUE.
-! 
-! OPTIONS
-!    prompt    Prompt string; displayed on same line as input is read from
-!    default   default answer on carriage-return. The type of the default
-!              determines the type of the output.
-! RETURNS
-!    strout    returned string or value. If an end-of-file or system error
-!              is encountered the string "EOF" is returned, or a "Nan"
-!              numeric value.
-! EXAMPLE
-!   Sample program:
-! 
-!    program demo_rd
-!    use M_io, only : rd
-!    character(len=:),allocatable :: mystring
-!    doubleprecision              :: d
-!    real                         :: r
-!    integer                      :: i
-! 
-!    INFINITE: do
-!       mystring=rd('Enter string or "STOP":',default='Today')
-!       if(mystring.eq.'STOP')stop
-!       i=rd('Enter integer:',default=huge(0))
-!       r=rd('Enter real:',default=huge(0.0))
-!       d=rd('Enter double:',default=huge(0.0d0))
-! 
-!       write(*,*)'I=', i, 'R=', r, 'D=',d,  'MYSTRING=', mystring
-!    enddo INFINITE
-! 
-!    end program demo_rd
-! 
-! AUTHOR
-!    John S. Urban, 1993
-! LICENSE
-!    Public Domain
+!>
+!!##NAME
+!! rd(3f) - [M_io] ask for string from standard input with user-definable prompt
+!! (LICENSE:PD)
+!!
+!!   function rd(prompt,default) result(strout)
+!!
+!!    character(len=*),intent(in)              :: prompt
+!!
+!!    character(len=*),intent(in)              :: default
+!!          or
+!!    integer,intent(in)                       :: default
+!!          or
+!!    real,intent(in)                          :: default
+!!          or
+!!    doubleprecision,intent(in)               :: default
+!!
+!!    character(len=:),allocatable,intent(out) :: strout
+!!
+!!##DESCRIPTION
+!!    Ask for string or value from standard input with user-definable prompt
+!!    up to 20 times.
+!!
+!!    Do not use the function in an I/O statement as not all versions of
+!!    Fortran support this form of recursion. Numeric values may be input
+!!    in standard INTEGER, REAL, and DOUBLEPRECISION formats or as whole
+!!    numbers in base 2 to 36 in the format BASE#VALUE.
+!!
+!!##OPTIONS
+!!    prompt    Prompt string; displayed on same line as input is read from
+!!    default   default answer on carriage-return. The type of the default
+!!              determines the type of the output.
+!!##RETURNS
+!!    strout    returned string or value. If an end-of-file or system error
+!!              is encountered the string "EOF" is returned, or a "Nan"
+!!              numeric value.
+!!##EXAMPLE
+!!
+!!   Sample program:
+!!
+!!    program demo_rd
+!!    use M_io, only : rd
+!!    implicit none
+!!    character(len=:),allocatable :: mystring
+!!    doubleprecision              :: d
+!!    real                         :: r
+!!    integer                      :: i
+!!
+!!    INFINITE: do
+!!       mystring=rd('Enter string or "STOP":',default='Today')
+!!       if(mystring.eq.'STOP')stop
+!!       i=rd('Enter integer:',default=huge(0))
+!!       r=rd('Enter real:',default=huge(0.0))
+!!       d=rd('Enter double:',default=huge(0.0d0))
+!!
+!!       write(*,*)'I=', i, 'R=', r, 'D=',d,  'MYSTRING=', mystring
+!!    enddo INFINITE
+!!
+!!    end program demo_rd
+!!
+!!##AUTHOR
+!!    John S. Urban, 1993
+!!##LICENSE
+!!    Public Domain
 function rd_character(prompt,default) result(strout)
 ! 1995 John S. Urban
 !
 implicit none
 
-! ident_15="@(#)M_io::rd_character(3fp): ask for string from standard input with user-definable prompt"
+! ident_14="@(#)M_io::rd_character(3fp): ask for string from standard input with user-definable prompt"
 
 character(len=*),intent(in)  :: prompt
 character(len=*),intent(in)  :: default
@@ -4112,7 +3945,7 @@ integer                      :: icount
          strout=default
          exit
       elseif(igot.le.0)then
-         write(*,*)'*rd* blank string not allowed'
+         call journal('*rd* blank string not allowed')
          cycle
       else
          exit
@@ -4120,19 +3953,21 @@ integer                      :: icount
    enddo
 end function rd_character
 !===================================================================================================================================
-function rd_doubleprecision(prompt,default) result(dvalue)
+function rd_doubleprecision(prompt,default,iostat) result(dvalue)
 implicit none
 
-! ident_16="@(#)M_io::rd_doubleprecision(3fp): ask for number from standard input with user-definable prompt"
+! ident_15="@(#)M_io::rd_doubleprecision(3fp): ask for number from standard input with user-definable prompt"
 
 doubleprecision              :: dvalue
 integer                      :: ivalue
 character(len=*),intent(in)  :: prompt
 doubleprecision,intent(in)   :: default
+integer,intent(out),optional :: iostat
 character(len=:),allocatable :: strout
 character(len=:),allocatable :: message
 integer                      :: itest
 
+   iostat=0
    dvalue=default
    strout=adjustl(rd_character(prompt,'NaN'))
 
@@ -4147,39 +3982,330 @@ integer                      :: itest
       if( decodebase(strout,0,ivalue))then
          dvalue=ivalue
       else
+         iostat=-1
          write(*,*)'ERROR> could not convert ',strout
       endif
    else
       itest=isnumber(strout,message)
       if(itest.gt.0)then
-         dvalue=s2v(strout)
+         dvalue=s2v(strout,ierr=iostat)
       else
+         iostat=-2
          write(*,*)' ERROR> for ',strout,' ',itest,':',trim(message)
       endif
    endif
 end function rd_doubleprecision
 !===================================================================================================================================
-function rd_real(prompt,default) result(rvalue)
+function rd_real(prompt,default,iostat) result(rvalue)
 implicit none
 
-! ident_17="@(#)M_io::rd_real(3fp): ask for number from standard input with user-definable prompt"
+! ident_16="@(#)M_io::rd_real(3fp): ask for number from standard input with user-definable prompt"
 
 real                         :: rvalue
+real(kind=dp)                :: dvalue
 character(len=*),intent(in)  :: prompt
 real,intent(in)              :: default
-   rvalue=real(rd_doubleprecision(prompt,dble(default)))
+integer,intent(out),optional :: iostat
+   !*! what about Nan, Inf, -Inf? Likely place for compiler bugs
+   dvalue=rd_doubleprecision(prompt,dble(default),iostat)
+   if(dvalue.ne.dvalue)then
+      write(stderr,'(*(g0))') &
+      & '<ERROR>*input* value [',dvalue,'] is indefinite'
+      rvalue=huge(0.0)
+   else
+      rvalue=real(dvalue)
+   endif
 end function rd_real
 !===================================================================================================================================
-function rd_integer(prompt,default) result(ivalue)
+function rd_integer(prompt,default,iostat) result(ivalue)
 implicit none
 
-! ident_18="@(#)M_io::rd_integer(3fp): ask for number from standard input with user-definable prompt"
+! ident_17="@(#)M_io::rd_integer(3fp): ask for number from standard input with user-definable prompt"
 
 integer                      :: ivalue
+real(kind=dp)                :: dvalue
 character(len=*),intent(in)  :: prompt
 integer,intent(in)           :: default
-   ivalue=nint(rd_doubleprecision(prompt,dble(default)))
+integer,intent(out),optional :: iostat
+   dvalue=rd_doubleprecision(prompt,dble(default),iostat)
+   !*! what about Nan, Inf, -Inf?
+   if(dvalue.ne.dvalue)then
+      write(stderr,'(*(g0))') &
+      & '<ERROR>*input* value [',dvalue,'] is indefinite'
+      ivalue=huge(0)
+   elseif(dvalue.gt.huge(0))then
+      write(stderr,'(*(g0))') &
+      & '<ERROR>*input* value [',dvalue,'] greater than ', huge(0)
+      ivalue=huge(0)
+   elseif(dvalue.lt.1-huge(0))then
+      write(stderr,'(*(g0))') &
+      & '<ERROR>*input* value [',dvalue,'] less than ', 1-huge(0)
+      ivalue=1-huge(0)
+   else
+      ivalue=nint(dvalue)
+   endif
 end function rd_integer
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+!>
+!!##NAME
+!!    getname(3f) - [M_io:ENVIRONMENT] get name of the current executable
+!!    (LICENSE:PD)
+!!
+!!##SYNOPSIS
+!!
+!!    function getname() result(name)
+!!
+!!     character(len=:),allocatable         :: getname
+!!
+!!##DESCRIPTION
+!!    The getname() returns the name of the current executable using
+!!    get_command_argument(3f) and inquire(3f).
+!!
+!!##EXAMPLE
+!!
+!!    Sample getting a pathname of current executable:
+!!
+!!      program demo_getname
+!!      use M_io, only : getname
+!!      implicit none
+!!         write(*,*)'Running ',getname()
+!!      end program demo_getname
+!!
+!!##AUTHOR
+!!        John S. Urban
+!!
+!!##LICENSE
+!!        Public Domain
+function getname() result(name)
+! get the pathname of arg0
+implicit none
+character(len=:),allocatable :: arg0
+integer                      :: arg0_length
+integer                      :: ios
+character(len=4096)          :: long_name
+character(len=:),allocatable :: name
+   arg0_length=0
+   name=''
+   long_name=''
+   call get_command_argument(0,length=arg0_length,status=ios)
+   if(ios.eq.0)then
+      if(allocated(arg0))deallocate(arg0)
+      allocate(character(len=arg0_length) :: arg0)
+      call get_command_argument(0,arg0,status=ios)
+      if(ios.eq.0)then
+         inquire(file=arg0,iostat=ios,name=long_name)
+         name=trim(long_name)
+      else
+         name=arg0
+      endif
+   endif
+end function getname
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+!>
+!!##NAME
+!!     which(3f) - [M_io:ENVIRONMENT] given a command name find the pathname by searching
+!!                 the directories in the environment variable $PATH
+!!     (LICENSE:PD)
+!!
+!!##SYNTAX
+!!   function which(command) result(pathname)
+!!
+!!    character(len=*),intent(in)  :: command
+!!    character(len=:),allocatable :: pathname
+!!
+!!##DESCRIPTION
+!!    Given a command name find the first file with that name in the directories
+!!    specified by the environment variable $PATH.
+!!
+!!##OPTIONS
+!!    COMMAND   the command to search for
+!!
+!!##RETURNS
+!!    PATHNAME  the first pathname found in the current user path. Returns blank
+!!              if the command is not found.
+!!
+!!##EXAMPLE
+!!
+!!   Sample program:
+!!
+!!     program demo_which
+!!     use M_io, only : which
+!!     implicit none
+!!        write(*,*)'ls is ',which('ls')
+!!        write(*,*)'dir is ',which('dir')
+!!        write(*,*)'install is ',which('install')
+!!     end program demo_which
+!!
+!!##AUTHOR
+!!    John S. Urban
+!!##LICENSE
+!!    Public Domain
+function which(command) result(pathname)
+character(len=*),intent(in)     :: command
+character(len=:),allocatable    :: pathname, checkon, paths(:), exts(:)
+integer                         :: i, j
+   pathname=''
+   call split(get_env('PATH'),paths,delimiters=merge(';',':',separator().eq.'\'))
+   SEARCH: do i=1,size(paths)
+      checkon=trim(joinpath(trim(paths(i)),command))
+      select case(separator())
+      case('/')
+         if(exists(checkon))then
+            pathname=checkon
+            exit SEARCH
+         endif
+      case('\')
+         if(exists(checkon))then
+            pathname=checkon
+            exit SEARCH
+         endif
+         if(exists(checkon//'.bat'))then
+            pathname=checkon//'.bat'
+            exit SEARCH
+         endif
+         if(exists(checkon//'.exe'))then
+            pathname=checkon//'.exe'
+            exit SEARCH
+         endif
+         call split(get_env('PATHEXT'),exts,delimiters=';')
+         do j=1,size(exts)
+            if(exists(checkon//'.'//trim(exts(j))))then
+               pathname=checkon//'.'//trim(exts(j))
+               exit SEARCH
+            endif
+         enddo
+      end select
+   enddo SEARCH
+contains
+logical function exists(filename) result(r)
+character(len=*), intent(in) :: filename
+    inquire(file=filename, exist=r)
+end function
+end function which
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+!>
+!!##NAME
+!!     lookfor(3f) - [M_io:ENVIRONMENT] look for a filename in a number of directories
+!!                 specified by an environment variable
+!!     (LICENSE:PD)
+!!
+!!##SYNTAX
+!!   function lookfor(basename,env) result(pathname)
+!!
+!!    character(len=:),intent(in)  :: basename
+!!    character(len=:),intent(in)  :: env
+!!    character(len=:),allocatable :: pathname
+!!
+!!##DESCRIPTION
+!!    Given a base filename find the first file with that name in the directories
+!!    specified by the environment variable ENV
+!!
+!!##OPTIONS
+!!    BASENAME   the file to search for
+!!    ENV        environment variable name. Seperator between directory names is
+!!               assumed to be a colon on ULS (Unix-Like Systems) and semi-colon on
+!!               MS-Windows machines.
+!!
+!!##RETURNS
+!!    PATHNAME  the first pathname found in the current user path. Returns blank
+!!              if the file is not found.
+!!
+!!##EXAMPLE
+!!
+!!   Sample program:
+!!
+!!     program demo_lookfor
+!!     use M_io, only : lookfor
+!!     implicit none
+!!     character(len=:),allocatable :: returned
+!!        returned=lookfor('ls','PATH')
+!!        write(*,*)'ls is ',returned
+!!        returned=lookfor('dir.exe','PATH')
+!!        write(*,*)'dir is ',returned
+!!     end program demo_lookfor
+!!
+!!##AUTHOR
+!!    John S. Urban
+!!##LICENSE
+!!    Public Domain
+function lookfor(basename,env) result(pathname)
+character(len=*),intent(in)     :: basename
+character(len=*),intent(in)     :: env
+character(len=:),allocatable    :: pathname, checkon, paths(:)
+integer                         :: i
+logical                         :: r
+   pathname=''
+   call split(get_env(env),paths,delimiters=merge(';',':',separator().eq.'\'))
+   if(size(paths).eq.0)then
+      paths=['']
+   endif
+   do i=1,size(paths)
+      checkon=trim(joinpath(trim(paths(i)),basename))
+      inquire(file=checkon, exist=r)
+      if(r)then
+         pathname=checkon
+         exit
+      endif
+   enddo
+end function lookfor
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function get_env(NAME,DEFAULT) result(VALUE)
+implicit none
+character(len=*),intent(in)          :: NAME
+character(len=*),intent(in),optional :: DEFAULT
+character(len=:),allocatable         :: VALUE
+integer                              :: howbig
+integer                              :: stat
+integer                              :: length
+   ! get length required to hold value
+   length=0
+   if(NAME.ne.'')then
+      call get_environment_variable(NAME, length=howbig,status=stat,trim_name=.true.)
+      select case (stat)
+      case (1)
+         !*!print *, NAME, " is not defined in the environment. Strange..."
+         VALUE=''
+      case (2)
+         !*!print *, "This processor doesn't support environment variables. Boooh!"
+         VALUE=''
+      case default
+         ! make string to hold value of sufficient size
+         allocate(character(len=max(howbig,1)) :: VALUE)
+         ! get value
+         call get_environment_variable(NAME,VALUE,status=stat,trim_name=.true.)
+         if(stat.ne.0)VALUE=''
+      end select
+   else
+      VALUE=''
+   endif
+   if(VALUE.eq.''.and.present(DEFAULT))VALUE=DEFAULT
+end function get_env
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+! routines from other modules to make this one stand-alone
+!     XX                    XX       X
+!      X                     X                              X
+!      X                     X                              X
+!  XXXXX  XX  XX  XXXXXX     X     XXX     XXXXX   XXXX    XXXX    XXXXX   XXXXX
+! X    X   X   X   X    X    X       X    X     X      X    X     X     X X     X
+! X    X   X   X   X    X    X       X    X        XXXXX    X     XXXXXXX  XXX
+! X    X   X   X   X    X    X       X    X       X    X    X     X           XX
+! X    X   X  XX   X    X    X       X    X     X X    X    X  X  X     X X     X
+!  XXXXXX   XX XX  XXXXX   XXXXX   XXXXX   XXXXX   XXXX X    XX    XXXXX   XXXXX
+!                  X
+!                 XXX
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
@@ -4406,105 +4532,6 @@ integer                            :: ier
    enddo
 !-----------------------------------------------------------------------------------------------------------------------------------
 end function s2vs
-!===================================================================================================================================
-!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
-!===================================================================================================================================
-function i2s(ivalue,fmt) result(outstr)
-
-!character(len=*),parameter::ident_47="@(#)M_strings::i2s(3fp): private function returns string given integer value"
-
-integer,intent(in)           :: ivalue                         ! input value to convert to a string
-character(len=*),intent(in),optional :: fmt
-character(len=:),allocatable :: outstr                         ! output string to generate
-character(len=80)            :: string
-   if(present(fmt))then
-      call value_to_string(ivalue,string,fmt=fmt)
-   else
-      call value_to_string(ivalue,string)
-   endif
-   outstr=trim(string)
-end function i2s
-!===================================================================================================================================
-subroutine value_to_string(gval,chars,length,err,fmt,trimz)
-
-!character(len=*),parameter::ident_40="@(#)M_strings::value_to_string(3fp): subroutine returns a string from a value"
-
-class(*),intent(in)                      :: gval
-character(len=*),intent(out)             :: chars
-integer,intent(out),optional             :: length
-integer,optional                         :: err
-integer                                  :: err_local
-character(len=*),optional,intent(in)     :: fmt         ! format to write value with
-logical,intent(in),optional              :: trimz
-character(len=:),allocatable             :: fmt_local
-character(len=1024)                      :: msg
-
-!  Notice that the value GVAL can be any of several types ( INTEGER,REAL,DOUBLEPRECISION,LOGICAL)
-
-   if (present(fmt)) then
-      select type(gval)
-      type is (integer)
-         fmt_local='(i0)'
-         if(fmt.ne.'') fmt_local=fmt
-         write(chars,fmt_local,iostat=err_local,iomsg=msg)gval
-      type is (real)
-         fmt_local='(bz,g23.10e3)'
-         fmt_local='(bz,g0.8)'
-         if(fmt.ne.'') fmt_local=fmt
-         write(chars,fmt_local,iostat=err_local,iomsg=msg)gval
-      type is (doubleprecision)
-         fmt_local='(bz,g0)'
-         if(fmt.ne.'') fmt_local=fmt
-         write(chars,fmt_local,iostat=err_local,iomsg=msg)gval
-      type is (logical)
-         fmt_local='(l1)'
-         if(fmt.ne.'') fmt_local=fmt
-         write(chars,fmt_local,iostat=err_local,iomsg=msg)gval
-      class default
-         write(*,*)'*value_to_string* UNKNOWN TYPE'
-         chars=' '
-      end select
-      if(fmt.eq.'') then
-         chars=adjustl(chars)
-         call trimzeros(chars)
-      endif
-   else                                                  ! no explicit format option present
-      err_local=-1
-      select type(gval)
-      type is (integer)
-         write(chars,*,iostat=err_local,iomsg=msg)gval
-      type is (real)
-         write(chars,*,iostat=err_local,iomsg=msg)gval
-      type is (doubleprecision)
-         write(chars,*,iostat=err_local,iomsg=msg)gval
-      type is (logical)
-         write(chars,*,iostat=err_local,iomsg=msg)gval
-      class default
-         chars=''
-      end select
-      chars=adjustl(chars)
-      if(index(chars,'.').ne.0) call trimzeros(chars)
-   endif
-   if(present(trimz))then
-      if(trimz)then
-         chars=adjustl(chars)
-         call trimzeros(chars)
-      endif
-   endif
-
-   if(present(length)) then
-      length=len_trim(chars)
-   endif
-
-   if(present(err)) then
-      err=err_local
-   elseif(err_local.ne.0)then
-      !! cannot currently do I/O from a function being called from I/O
-      !!write(ERROR_UNIT,'(a)')'*value_to_string* WARNING:['//trim(msg)//']'
-      chars=chars//' *value_to_string* WARNING:['//trim(msg)//']'
-   endif
-
-end subroutine value_to_string
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
@@ -4757,38 +4784,38 @@ end subroutine substitute
 ! NAME
 !    isnumber(3f) - [M_strings:NUMERIC] determine if a string represents a number
 !    (LICENSE:PD)
-! 
+!
 ! SYNOPSIS
 !    function isnumber(str,msg)
-! 
+!
 !     character(len=*),intent(in)  :: str
 !     character(len=:),intent(out),allocatable,optional  :: msg
-! 
+!
 ! DESCRIPTION
 !     ISNUMBER(3f) returns a value greater than zero if the string represents
 !     a number, and a number less than or equal to zero if it is a bad number.
 !     Blank characters are ignored.
-! 
+!
 ! OPTIONS
 !     str  the string to evaluate as to whether it represents a numeric value
 !          or not
 !     msg  An optional message describing the string
-! 
+!
 ! RETURNS
 !     isnumber  the following values are returned
-! 
+!
 !                1 for an integer             [-+]NNNNN
 !                2 for a whole number         [-+]NNNNN.
 !                3 for a real value           [-+]NNNNN.MMMM
 !                4 for a exponential value    [-+]NNNNN.MMMM[-+]LLLL
 !                                             [-+]NNNNN.MMMM[ed][-+]LLLL
-! 
+!
 !               values less than 1 represent an error
-! 
+!
 ! EXAMPLES
 !   As the example shows, you can use an internal READ(3f) along with the
 !   IOSTAT= parameter to check (and read) a string as well.
-! 
+!
 !     program demo_isnumber
 !     use M_strings, only : isnumber
 !     implicit none
@@ -4825,9 +4852,9 @@ end subroutine substitute
 !           !
 !        enddo
 !     end program demo_isnumber
-! 
+!
 !  Example run
-! 
+!
 !    > Begin entering values
 !    > ERROR:          -1 End of file
 !    >  ERROR for            -1 :null string
@@ -4870,10 +4897,10 @@ end subroutine substitute
 !    >1e+2.0
 !    > ERROR:        5010 Bad real number in item 1 of list input
 !    >  ERROR for 1e+2.0           -5 :bad number
-! 
+!
 ! AUTHOR
 !    John S. Urban
-! 
+!
 ! LICENSE
 !    Public Domain
 function isNumber(string,msg,verbose)
@@ -5025,21 +5052,21 @@ end function isdigit
 !    nospace(3f) - [M_strings:WHITESPACE] remove all whitespace from
 !    input string
 !    (LICENSE:PD)
-! 
+!
 ! SYNOPSIS
 !    function nospace(str) - remove all whitespace from input string
-! 
+!
 !     character(len=*),intent(in)          :: str
 !     character(len=:),allocatable         :: nospace
-! 
+!
 ! DESCRIPTION
 !    nospace(3f) removes space, tab, carriage return, new line, vertical
 !    tab, formfeed and null characters (called "whitespace"). The output
 !    is returned trimmed.
-! 
+!
 ! EXAMPLES
 !   Sample program:
-! 
+!
 !     program demo_nospace
 !     use M_strings, only: nospace
 !     implicit none
@@ -5053,16 +5080,16 @@ end function isdigit
 !           write(*,*)'nospace test error'
 !        endif
 !     end program demo_nospace
-! 
+!
 !   Expected output
-! 
+!
 !     original input string is ....  This     is      a     test
 !     processed output string is ...Thisisatest
 !     nospace test passed
-! 
+!
 ! AUTHOR
 !    John S. Urban
-! 
+!
 ! LICENSE
 !    Public Domain
 function nospace(line)
@@ -5152,6 +5179,608 @@ logical              :: res
 end function isspace
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+subroutine split(input_line,array,delimiters,order,nulls)
+!-----------------------------------------------------------------------------------------------------------------------------------
+
+!character(len=*),parameter::ident_7="&
+!&@(#)M_strings::split(3f): parse string on delimiter characters and store tokens into an allocatable array"
+
+!  John S. Urban
+!-----------------------------------------------------------------------------------------------------------------------------------
+intrinsic index, min, present, len
+!-----------------------------------------------------------------------------------------------------------------------------------
+!  given a line of structure " par1 par2 par3 ... parn " store each par(n) into a separate variable in array.
+!    o by default adjacent delimiters in the input string do not create an empty string in the output array
+!    o no quoting of delimiters is supported
+character(len=*),intent(in)              :: input_line  ! input string to tokenize
+character(len=*),optional,intent(in)     :: delimiters  ! list of delimiter characters
+character(len=*),optional,intent(in)     :: order       ! order of output array sequential|[reverse|right]
+character(len=*),optional,intent(in)     :: nulls       ! return strings composed of delimiters or not ignore|return|ignoreend
+character(len=:),allocatable,intent(out) :: array(:)    ! output array of tokens
+!-----------------------------------------------------------------------------------------------------------------------------------
+integer                       :: n                      ! max number of strings INPUT_LINE could split into if all delimiter
+integer,allocatable           :: ibegin(:)              ! positions in input string where tokens start
+integer,allocatable           :: iterm(:)               ! positions in input string where tokens end
+character(len=:),allocatable  :: dlim                   ! string containing delimiter characters
+character(len=:),allocatable  :: ordr                   ! string containing order keyword
+character(len=:),allocatable  :: nlls                   ! string containing nulls keyword
+integer                       :: ii,iiii                ! loop parameters used to control print order
+integer                       :: icount                 ! number of tokens found
+integer                       :: ilen                   ! length of input string with trailing spaces trimmed
+integer                       :: i10,i20,i30            ! loop counters
+integer                       :: icol                   ! pointer into input string as it is being parsed
+integer                       :: idlim                  ! number of delimiter characters
+integer                       :: ifound                 ! where next delimiter character is found in remaining input string data
+integer                       :: inotnull               ! count strings not composed of delimiters
+integer                       :: ireturn                ! number of tokens returned
+integer                       :: imax                   ! length of longest token
+!-----------------------------------------------------------------------------------------------------------------------------------
+   ! decide on value for optional DELIMITERS parameter
+   if (present(delimiters)) then                                     ! optional delimiter list was present
+      if(delimiters.ne.'')then                                       ! if DELIMITERS was specified and not null use it
+         dlim=delimiters
+      else                                                           ! DELIMITERS was specified on call as empty string
+         dlim=' '//char(9)//char(10)//char(11)//char(12)//char(13)//char(0) ! use default delimiter when not specified
+      endif
+   else                                                              ! no delimiter value was specified
+      dlim=' '//char(9)//char(10)//char(11)//char(12)//char(13)//char(0)    ! use default delimiter when not specified
+   endif
+   idlim=len(dlim)                                                   ! dlim a lot of blanks on some machines if dlim is a big string
+!-----------------------------------------------------------------------------------------------------------------------------------
+   if(present(order))then; ordr=lower(adjustl(order)); else; ordr='sequential'; endif ! decide on value for optional ORDER parameter
+   if(present(nulls))then; nlls=lower(adjustl(nulls)); else; nlls='ignore'    ; endif ! optional parameter
+!-----------------------------------------------------------------------------------------------------------------------------------
+   n=len(input_line)+1                        ! max number of strings INPUT_LINE could split into if all delimiter
+   allocate(ibegin(n))                        ! allocate enough space to hold starting location of tokens if string all tokens
+   allocate(iterm(n))                         ! allocate enough space to hold ending location of tokens if string all tokens
+   ibegin(:)=1
+   iterm(:)=1
+!-----------------------------------------------------------------------------------------------------------------------------------
+   ilen=len(input_line)                                           ! ILEN is the column position of the last non-blank character
+   icount=0                                                       ! how many tokens found
+   inotnull=0                                                     ! how many tokens found not composed of delimiters
+   imax=0                                                         ! length of longest token found
+!-----------------------------------------------------------------------------------------------------------------------------------
+   select case (ilen)
+!-----------------------------------------------------------------------------------------------------------------------------------
+   case (:0)                                                      ! command was totally blank
+!-----------------------------------------------------------------------------------------------------------------------------------
+   case default                                                   ! there is at least one non-delimiter in INPUT_LINE if get here
+      icol=1                                                      ! initialize pointer into input line
+      INFINITE: do i30=1,ilen,1                                   ! store into each array element
+         ibegin(i30)=icol                                         ! assume start new token on the character
+         if(index(dlim(1:idlim),input_line(icol:icol)).eq.0)then  ! if current character is not a delimiter
+            iterm(i30)=ilen                                       ! initially assume no more tokens
+            do i10=1,idlim                                        ! search for next delimiter
+               ifound=index(input_line(ibegin(i30):ilen),dlim(i10:i10))
+               IF(ifound.gt.0)then
+                  iterm(i30)=min(iterm(i30),ifound+ibegin(i30)-2)
+               endif
+            enddo
+            icol=iterm(i30)+2                                     ! next place to look as found end of this token
+            inotnull=inotnull+1                                   ! increment count of number of tokens not composed of delimiters
+         else                                                     ! character is a delimiter for a null string
+            iterm(i30)=icol-1                                     ! record assumed end of string. Will be less than beginning
+            icol=icol+1                                           ! advance pointer into input string
+         endif
+         imax=max(imax,iterm(i30)-ibegin(i30)+1)
+         icount=i30                                               ! increment count of number of tokens found
+         if(icol.gt.ilen)then                                     ! no text left
+            exit INFINITE
+         endif
+      enddo INFINITE
+!-----------------------------------------------------------------------------------------------------------------------------------
+   end select
+!-----------------------------------------------------------------------------------------------------------------------------------
+   select case (trim(adjustl(nlls)))
+   case ('ignore','','ignoreend')
+      ireturn=inotnull
+   case default
+      ireturn=icount
+   end select
+   allocate(character(len=imax) :: array(ireturn))                ! allocate the array to return
+   !allocate(array(ireturn))                                       ! allocate the array to turn
+!-----------------------------------------------------------------------------------------------------------------------------------
+   select case (trim(adjustl(ordr)))                              ! decide which order to store tokens
+   case ('reverse','right') ; ii=ireturn ; iiii=-1                ! last to first
+   case default             ; ii=1       ; iiii=1                 ! first to last
+   end select
+!-----------------------------------------------------------------------------------------------------------------------------------
+   do i20=1,icount                                                ! fill the array with the tokens that were found
+      if(iterm(i20).lt.ibegin(i20))then
+         select case (trim(adjustl(nlls)))
+         case ('ignore','','ignoreend')
+         case default
+            array(ii)=' '
+            ii=ii+iiii
+         end select
+      else
+         array(ii)=input_line(ibegin(i20):iterm(i20))
+         ii=ii+iiii
+      endif
+   enddo
+!-----------------------------------------------------------------------------------------------------------------------------------
+   end subroutine split
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+elemental pure function upper(str,begin,end) result (string)
+
+!character(len=*),parameter::ident_21="@(#)M_strings::upper(3f): Changes a string to uppercase"
+
+character(*), intent(In)      :: str                 ! inpout string to convert to all uppercase
+integer, intent(in), optional :: begin,end
+character(len(str))           :: string              ! output string that contains no miniscule letters
+integer                       :: i                   ! loop counter
+integer                       :: ibegin,iend
+   string = str                                      ! initialize output string to input string
+
+   ibegin = 1
+   if (present(begin))then
+      ibegin = max(ibegin,begin)
+   endif
+
+   iend = len_trim(str)
+   if (present(end))then
+      iend= min(iend,end)
+   endif
+
+   do i = ibegin, iend                               ! step thru each letter in the string in specified range
+       select case (str(i:i))
+       case ('a':'z')                                ! located miniscule letter
+          string(i:i) = char(iachar(str(i:i))-32)    ! change miniscule letter to uppercase
+       end select
+   end do
+
+end function upper
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+elemental pure function lower(str,begin,end) result (string)
+
+!character(len=*),parameter::ident_22="@(#)M_strings::lower(3f): Changes a string to lowercase over specified range"
+
+character(*), intent(In)     :: str
+character(len(str))          :: string
+integer,intent(in),optional  :: begin, end
+integer                      :: i
+integer                      :: ibegin, iend
+   string = str
+
+   ibegin = 1
+   if (present(begin))then
+      ibegin = max(ibegin,begin)
+   endif
+
+   iend = len_trim(str)
+   if (present(end))then
+      iend= min(iend,end)
+   endif
+
+   do i = ibegin, iend                               ! step thru each letter in the string in specified range
+      select case (str(i:i))
+      case ('A':'Z')
+         string(i:i) = char(iachar(str(i:i))+32)     ! change letter to miniscule
+      case default
+      end select
+   end do
+
+end function lower
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+pure function s2a(string)  RESULT (array)
+
+!character(len=*),parameter::ident_24="@(#)M_strings::s2a(3fp): function to copy string(1:Clen(string)) to char array"
+
+character(len=*),intent(in) :: string
+character(len=1)            :: array(len(string))
+integer                     :: i
+! ----------------------------------------------------------------------------------------------------------------------------------
+   forall(i=1:len(string)) array(i) = string(i:i)
+! ----------------------------------------------------------------------------------------------------------------------------------
+end function s2a
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function i2s(ivalue,fmt) result(outstr)
+
+!character(len=*),parameter::ident_47="@(#)M_strings::i2s(3fp): private function returns string given integer value"
+
+integer,intent(in)           :: ivalue                         ! input value to convert to a string
+character(len=*),intent(in),optional :: fmt
+character(len=:),allocatable :: outstr                         ! output string to generate
+character(len=80)            :: string
+   if(present(fmt))then
+      call value_to_string(ivalue,string,fmt=fmt)
+   else
+      call value_to_string(ivalue,string)
+   endif
+   outstr=trim(string)
+end function i2s
+!===================================================================================================================================
+subroutine value_to_string(gval,chars,length,err,fmt,trimz)
+
+!character(len=*),parameter::ident_40="@(#)M_strings::value_to_string(3fp): subroutine returns a string from a value"
+
+class(*),intent(in)                      :: gval
+character(len=*),intent(out)             :: chars
+integer,intent(out),optional             :: length
+integer,optional                         :: err
+integer                                  :: err_local
+character(len=*),optional,intent(in)     :: fmt         ! format to write value with
+logical,intent(in),optional              :: trimz
+character(len=:),allocatable             :: fmt_local
+character(len=1024)                      :: msg
+
+!  Notice that the value GVAL can be any of several types ( INTEGER,REAL,DOUBLEPRECISION,LOGICAL)
+
+   if (present(fmt)) then
+      select type(gval)
+      type is (integer)
+         fmt_local='(i0)'
+         if(fmt.ne.'') fmt_local=fmt
+         write(chars,fmt_local,iostat=err_local,iomsg=msg)gval
+      type is (real)
+         fmt_local='(bz,g23.10e3)'
+         fmt_local='(bz,g0.8)'
+         if(fmt.ne.'') fmt_local=fmt
+         write(chars,fmt_local,iostat=err_local,iomsg=msg)gval
+      type is (doubleprecision)
+         fmt_local='(bz,g0)'
+         if(fmt.ne.'') fmt_local=fmt
+         write(chars,fmt_local,iostat=err_local,iomsg=msg)gval
+      type is (logical)
+         fmt_local='(l1)'
+         if(fmt.ne.'') fmt_local=fmt
+         write(chars,fmt_local,iostat=err_local,iomsg=msg)gval
+      class default
+         write(*,*)'*value_to_string* UNKNOWN TYPE'
+         chars=' '
+      end select
+      if(fmt.eq.'') then
+         chars=adjustl(chars)
+         call trimzeros(chars)
+      endif
+   else                                                  ! no explicit format option present
+      err_local=-1
+      select type(gval)
+      type is (integer)
+         write(chars,*,iostat=err_local,iomsg=msg)gval
+      type is (real)
+         write(chars,*,iostat=err_local,iomsg=msg)gval
+      type is (doubleprecision)
+         write(chars,*,iostat=err_local,iomsg=msg)gval
+      type is (logical)
+         write(chars,*,iostat=err_local,iomsg=msg)gval
+      class default
+         chars=''
+      end select
+      chars=adjustl(chars)
+      if(index(chars,'.').ne.0) call trimzeros(chars)
+   endif
+   if(present(trimz))then
+      if(trimz)then
+         chars=adjustl(chars)
+         call trimzeros(chars)
+      endif
+   endif
+
+   if(present(length)) then
+      length=len_trim(chars)
+   endif
+
+   if(present(err)) then
+      err=err_local
+   elseif(err_local.ne.0)then
+      !! cannot currently do I/O from a function being called from I/O
+      !!write(ERROR_UNIT,'(a)')'*value_to_string* WARNING:['//trim(msg)//']'
+      chars=chars//' *value_to_string* WARNING:['//trim(msg)//']'
+   endif
+
+end subroutine value_to_string
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function merge_str(str1,str2,expr) result(strout)
+! for some reason the MERGE(3f) intrinsic requires the strings it compares to be of equal length
+! make an alias for MERGE(3f) that makes the lengths the same before doing the comparison by padding the shorter one with spaces
+
+!character(len=*),parameter::ident_37="@(#)M_strings::merge_str(3f): pads first and second arguments to MERGE(3f) to same length"
+
+character(len=*),intent(in)     :: str1
+character(len=*),intent(in)     :: str2
+logical,intent(in)              :: expr
+character(len=:),allocatable    :: strout
+integer                         :: big
+   big=max(len(str1),len(str2))
+   strout=trim(merge(lenset(str1,big),lenset(str2,big),expr))
+end function merge_str
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+subroutine notabs(INSTR,OUTSTR,ILEN)
+
+!character(len=*),parameter::ident_31="&
+!&@(#)M_strings::notabs(3f): convert tabs to spaces while maintaining columns, remove CRLF chars"
+
+CHARACTER(LEN=*),INTENT(IN)   :: instr        ! input line to scan for tab characters
+CHARACTER(LEN=*),INTENT(OUT)  :: outstr       ! tab-expanded version of INSTR produced
+INTEGER,INTENT(OUT)           :: ilen         ! column position of last character put into output string
+                                              ! that is, ILEN holds the position of the last non-blank character in OUTSTR
+!===================================================================================================================================
+INTEGER,PARAMETER             :: tabsize=8    ! assume a tab stop is set every 8th column
+INTEGER                       :: ipos         ! position in OUTSTR to put next character of INSTR
+INTEGER                       :: lenin        ! length of input string trimmed of trailing spaces
+INTEGER                       :: lenout       ! number of characters output string can hold
+INTEGER                       :: istep        ! counter that advances thru input string INSTR one character at a time
+CHARACTER(LEN=1)              :: c            ! character in input line being processed
+INTEGER                       :: iade         ! ADE (ASCII Decimal Equivalent) of character being tested
+!===================================================================================================================================
+   IPOS=1                                     ! where to put next character in output string OUTSTR
+   lenin=LEN(instr)                           ! length of character variable INSTR
+   lenin=LEN_TRIM(instr(1:lenin))             ! length of INSTR trimmed of trailing spaces
+   lenout=LEN(outstr)                         ! number of characters output string OUTSTR can hold
+   OUTSTR=" "                                 ! this SHOULD blank-fill string, a buggy machine required a loop to set all characters
+!===================================================================================================================================
+      SCAN_LINE: DO istep=1,lenin             ! look through input string one character at a time
+         c=instr(istep:istep)                 ! get next character
+         iade=ICHAR(c)                        ! get ADE of the character
+         expand_tabs : SELECT CASE (iade)     ! take different actions depending on which character was found
+         CASE(9)                              ! test if character is a tab and move pointer out to appropriate column
+            ipos = ipos + (tabsize - (MOD(ipos-1,tabsize)))
+         CASE(10,13)                          ! convert carriage-return and new-line to space ,typically to handle DOS-format files
+            ipos=ipos+1
+         CASE DEFAULT                         ! c is anything else other than a tab,newline,or return  insert it in output string
+            IF(ipos > lenout)THEN
+               write(*,*)"*notabs* output string overflow"
+               EXIT
+            ELSE
+               outstr(ipos:ipos)=c
+               ipos=ipos+1
+            ENDIF
+         END SELECT expand_tabs
+      enddo SCAN_LINE
+!===================================================================================================================================
+      ipos=MIN(ipos,lenout)                   ! tabs or newline or return characters or last character might have gone too far
+      ilen=LEN_TRIM(outstr(:ipos))            ! trim trailing spaces
+!===================================================================================================================================
+END SUBROUTINE notabs
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+subroutine where_write_message(where,msg)
+! ident_2="@(#)M_journal::where_write_message(3fp): basic message routine used for journal files"
+character(len=*),intent(in)  :: where
+character(len=*),intent(in)  :: msg
+logical,save                       :: trailopen=.false.
+integer,save                       :: itrail
+character,save                     :: comment='#'
+integer                            :: i
+integer                            :: ios
+integer                            :: times             ! number of times written to my_stdout
+character(len=3)                   :: adv               ! whether remaining writes from this call use advancing I/O
+character(len=4096)                :: mssge
+   adv='yes'
+   times=0
+   do i=1,len_trim(where)
+      select case(where(i:i))
+      case('T','t')
+         if(trailopen) then
+            write(itrail,'(a)',advance=adv)trim(msg)
+         endif
+      case('S','s')
+         write(my_stdout,'(a)',advance=adv)trim(msg)
+         times=times+1
+      case('E','e')
+         write(stderr,'(a)',advance=adv)trim(msg)
+         times=times+1
+      case('+'); adv='no'
+      case('>'); debug=.true.
+      case('<'); debug=.false.
+      case('N')                                                   ! new name for my_stdout
+         if(msg.ne.' '.and.msg.ne.'#N#'.and.msg.ne.'"#N#"')then   ! if filename not special or blank open new file
+            close(unit=last_int,iostat=ios)
+            open(unit=last_int,file=adjustl(trim(msg)),iostat=ios)
+            if(ios.eq.0)then
+               my_stdout=last_int
+            else
+               write(*,*)'*journal* error opening redirected output file, ioerr=',ios
+               write(*,*)'*journal* msg='//trim(msg)
+            endif
+         elseif(msg.eq.' ')then
+            close(unit=last_int,iostat=ios)
+            my_stdout=6
+         endif
+      case('C','c')
+         if(trailopen)then
+            write(itrail,'(3a)',advance=adv)comment,trim(msg)
+         elseif(times.eq.0)then
+            !! write(my_stdout,'(2a)',advance=adv)trim(msg)
+            !! times=times+1
+         endif
+      case('D','d')
+         if(debug)then
+            if(trailopen)then
+               write(itrail,'(4a)',advance=adv)comment,'DEBUG: ',trim(msg)
+            elseif(times.eq.0)then
+               write(my_stdout,'(3a)',advance=adv)'DEBUG:',trim(msg)
+               times=times+1
+            endif
+         endif
+      case('F','f')
+         flush(unit=itrail,iostat=ios,iomsg=mssge)
+         if(ios.ne.0)then
+            write(*,'(a)') trim(mssge)
+         endif
+      case('A','a')
+         if(msg.ne.'')then
+            open(newunit=itrail,status='unknown',access='sequential',file=adjustl(trim(msg)),&
+            & form='formatted',iostat=ios,position='append')
+            trailopen=.true.
+         endif
+      case('O','o')
+         if(msg.ne.'')then
+            open(newunit=itrail,status='unknown',access='sequential', file=adjustl(trim(msg)),form='formatted',iostat=ios)
+            trailopen=.true.
+         else
+            if(trailopen)then
+               write(itrail,'(4a)',advance=adv)comment,'closing trail file:',trim(msg)
+            endif
+            close(unit=itrail,iostat=ios)
+            trailopen=.false.
+         endif
+      case default
+         write(my_stdout,'(a)',advance=adv)'*journal* bad WHERE value '//trim(where)//' when msg=['//trim(msg)//']'
+      end select
+   enddo
+end subroutine where_write_message
+
+subroutine where_write_message_all(where, g0, g1, g2, g3, g4, g5, g6, g7, g8, g9, sep)
+implicit none
+! ident_5="@(#)M_journal::where_write_message_all(3f): writes a message to a string composed of any standard scalar types"
+character(len=*),intent(in)   :: where
+class(*),intent(in)           :: g0
+class(*),intent(in),optional  :: g1, g2, g3, g4, g5, g6, g7, g8 ,g9
+character(len=*),intent(in),optional :: sep
+character(len=:),allocatable  :: sep_local
+call where_write_message(where,str(g0, g1, g2, g3, g4, g5, g6, g7, g8, g9,sep))
+end subroutine where_write_message_all
+
+subroutine write_message_only(message)
+! ident_6="@(#)M_journal::write_message_only(3fp): calls JOURNAL('sc',message)"
+character(len=*),intent(in)          :: message
+   call where_write_message('sc',trim(message))
+end subroutine write_message_only
+
+function msg_scalar(generic0, generic1, generic2, generic3, generic4, generic5, generic6, generic7, generic8, generic9, &
+                  & generica, genericb, genericc, genericd, generice, genericf, genericg, generich, generici, genericj, &
+                  & sep)
+! ident_2="@(#)M_msg::msg_scalar(3fp): writes a message to a string composed of any standard scalar types"
+class(*),intent(in),optional  :: generic0, generic1, generic2, generic3, generic4
+class(*),intent(in),optional  :: generic5, generic6, generic7, generic8, generic9
+class(*),intent(in),optional  :: generica, genericb, genericc, genericd, generice
+class(*),intent(in),optional  :: genericf, genericg, generich, generici, genericj
+character(len=*),intent(in),optional :: sep
+character(len=:),allocatable  :: sep_local
+character(len=:), allocatable :: msg_scalar
+character(len=4096)           :: line
+integer                       :: istart
+integer                       :: increment
+   if(present(sep))then
+         increment=len(sep)+1
+         sep_local=sep
+   else
+      sep_local=' '
+      increment=2
+   endif
+   istart=1
+   line=''
+   if(present(generic0))call print_generic(generic0)
+   if(present(generic1))call print_generic(generic1)
+   if(present(generic2))call print_generic(generic2)
+   if(present(generic3))call print_generic(generic3)
+   if(present(generic4))call print_generic(generic4)
+   if(present(generic5))call print_generic(generic5)
+   if(present(generic6))call print_generic(generic6)
+   if(present(generic7))call print_generic(generic7)
+   if(present(generic8))call print_generic(generic8)
+   if(present(generic9))call print_generic(generic9)
+   if(present(generica))call print_generic(generica)
+   if(present(genericb))call print_generic(genericb)
+   if(present(genericc))call print_generic(genericc)
+   if(present(genericd))call print_generic(genericd)
+   if(present(generice))call print_generic(generice)
+   if(present(genericf))call print_generic(genericf)
+   if(present(genericg))call print_generic(genericg)
+   if(present(generich))call print_generic(generich)
+   if(present(generici))call print_generic(generici)
+   if(present(genericj))call print_generic(genericj)
+   msg_scalar=trim(line)
+contains
+
+subroutine print_generic(generic)
+!use, intrinsic :: iso_fortran_env, only : int8, int16, int32, biggest=>int64, real32, real64, dp=>real128
+use,intrinsic :: iso_fortran_env, only : int8, int16, int32, int64, real32, real64, real128
+class(*),intent(in) :: generic
+   select type(generic)
+      type is (integer(kind=int8));     write(line(istart:),'(i0)') generic
+      type is (integer(kind=int16));    write(line(istart:),'(i0)') generic
+      type is (integer(kind=int32));    write(line(istart:),'(i0)') generic
+      type is (integer(kind=int64));    write(line(istart:),'(i0)') generic
+      type is (real(kind=real32));      write(line(istart:),'(1pg0)') generic
+      type is (real(kind=real64));      write(line(istart:),'(1pg0)') generic
+      type is (real(kind=real128));     write(line(istart:),'(1pg0)') generic
+      type is (logical);                write(line(istart:),'(l1)') generic
+      type is (character(len=*));       write(line(istart:),'(a)') trim(generic)
+      type is (complex);                write(line(istart:),'("(",1pg0,",",1pg0,")")') generic
+   end select
+   istart=len_trim(line)+increment
+   line=trim(line)//sep_local
+end subroutine print_generic
+
+end function msg_scalar
+
+function msg_one(generic0,generic1, generic2, generic3, generic4, generic5, generic6, generic7, generic8, generic9,sep)
+implicit none
+! ident_3="@(#)M_msg::msg_one(3fp): writes a message to a string composed of any standard one dimensional types"
+class(*),intent(in)           :: generic0(:)
+class(*),intent(in),optional  :: generic1(:), generic2(:), generic3(:), generic4(:), generic5(:)
+class(*),intent(in),optional  :: generic6(:), generic7(:), generic8(:), generic9(:)
+character(len=*),intent(in),optional :: sep
+character(len=:),allocatable  :: sep_local
+character(len=:),allocatable  :: msg_one
+character(len=4096)           :: line
+integer                       :: istart
+integer                       :: increment
+   if(present(sep))then
+      increment=len(sep)+1
+      sep_local=sep
+   else
+      sep_local=' '
+      increment=2
+   endif
+   istart=1
+   line=' '
+   call print_generic(generic0)
+   if(present(generic1))call print_generic(generic1)
+   if(present(generic2))call print_generic(generic2)
+   if(present(generic3))call print_generic(generic3)
+   if(present(generic4))call print_generic(generic4)
+   if(present(generic5))call print_generic(generic5)
+   if(present(generic6))call print_generic(generic6)
+   if(present(generic7))call print_generic(generic7)
+   if(present(generic8))call print_generic(generic8)
+   if(present(generic9))call print_generic(generic9)
+   msg_one=trim(line)
+contains
+
+subroutine print_generic(generic)
+!use, intrinsic :: iso_fortran_env, only : int8, int16, int32, biggest=>int64, real32, real64, dp=>real128
+use,intrinsic :: iso_fortran_env, only : int8, int16, int32, int64, real32, real64, real128
+class(*),intent(in),optional :: generic(:)
+integer :: i
+   select type(generic)
+      type is (integer(kind=int8));     write(line(istart:),'("[",*(i0,1x))') generic
+      type is (integer(kind=int16));    write(line(istart:),'("[",*(i0,1x))') generic
+      type is (integer(kind=int32));    write(line(istart:),'("[",*(i0,1x))') generic
+      type is (integer(kind=int64));    write(line(istart:),'("[",*(i0,1x))') generic
+      type is (real(kind=real32));      write(line(istart:),'("[",*(1pg0,1x))') generic
+      type is (real(kind=real64));      write(line(istart:),'("[",*(1pg0,1x))') generic
+      type is (real(kind=real128));     write(line(istart:),'("[",*(1pg0,1x))') generic
+      !type is (real(kind=real256));     write(error_unit,'(1pg0)',advance='no') generic
+      type is (logical);                write(line(istart:),'("[",*(l1,1x))') generic
+      type is (character(len=*));       write(line(istart:),'("[",:*("""",a,"""",1x))') (trim(generic(i)),i=1,size(generic))
+      type is (complex);                write(line(istart:),'("[",*("(",1pg0,",",1pg0,")",1x))') generic
+      class default
+         stop 'unknown type in *print_generic*'
+   end select
+   istart=len_trim(line)+increment
+   line=trim(line)//"]"//sep_local
+end subroutine print_generic
+
+end function msg_one
 !===================================================================================================================================
 end module m_io
 !===================================================================================================================================
@@ -14764,7 +15393,7 @@ class(*),intent(in) :: generic
       type is (integer(kind=int64));    write(line(istart:),'(i0)') generic
       type is (real(kind=real32));      write(line(istart:),'(1pg0)') generic
       type is (real(kind=real64));      write(line(istart:),'(1pg0)') generic
-      !x!type is (real(kind=real128));     write(line(istart:),'(1pg0)') generic
+      type is (real(kind=real128));     write(line(istart:),'(1pg0)') generic
       type is (logical);                write(line(istart:),'(l1)') generic
       type is (character(len=*));       write(line(istart:),'(a)') trim(generic)
       type is (complex);                write(line(istart:),'("(",1pg0,",",1pg0,")")') generic
@@ -14821,7 +15450,7 @@ integer :: i
       type is (integer(kind=int64));    write(line(istart:),'("[",*(i0,1x))') generic
       type is (real(kind=real32));      write(line(istart:),'("[",*(1pg0,1x))') generic
       type is (real(kind=real64));      write(line(istart:),'("[",*(1pg0,1x))') generic
-      !type is (real(kind=real128));     write(line(istart:),'("[",*(1pg0,1x))') generic
+      type is (real(kind=real128));     write(line(istart:),'("[",*(1pg0,1x))') generic
       !type is (real(kind=real256));     write(error_unit,'(1pg0)',advance='no') generic
       type is (logical);                write(line(istart:),'("[",*(l1,1x))') generic
       type is (character(len=*));       write(line(istart:),'("[",:*("""",a,"""",1x))') (trim(generic(i)),i=1,size(generic))
@@ -16508,12 +17137,12 @@ end module M_list
 !  Extensively rewritten since under a MIT License.
 !     2013-10-03,2020-12-19,2021-06-12 : John S. Urban
 
-module M_fpp                                                             !@(#)M_fpp(3f): module used by prep program
-USE ISO_FORTRAN_ENV, ONLY : ERROR_UNIT, OUTPUT_UNIT                      ! access computing environment ; Standard: Fortran 2003
-use M_io,        only : slurp, get_tmp, dirname                          ! Fortran file I/O routines
-use M_kracken95, only : sget, dissect, lget                              ! load command argument parsing module
+module M_fpp                                                                 !@(#)M_fpp(3f): module used by prep program
+USE ISO_FORTRAN_ENV, ONLY : ERROR_UNIT, OUTPUT_UNIT                          ! access computing environment ; Standard: Fortran 2003
+use M_io,        only : get_tmp, dirname, uniq, fileopen, filedelete         ! Fortran file I/O routines
+use M_kracken95, only : sget, dissect, lget                                  ! load command argument parsing module
 use M_strings,   only : nospace, v2s, substitute, upper, lower, isalpha, split, delim, str_replace=>replace, sep, atleast
-use M_list,      only : insert, locate, replace, remove                  ! Basic list lookup and maintenance
+use M_list,      only : insert, locate, replace, remove                      ! Basic list lookup and maintenance
    implicit none
 
    logical,save                         :: debug=.false.
@@ -16544,6 +17173,7 @@ use M_list,      only : insert, locate, replace, remove                  ! Basic
    end type
    type(parcel_stack),public            ::  G_parcel_dictionary(500)
 
+   integer,save                         :: G_line_number=0
    logical,save,public                  :: G_asis=.false.
    logical,save,public                  :: G_expand=.false.
    integer,public                       :: G_iocount=0
@@ -16581,6 +17211,8 @@ use M_list,      only : insert, locate, replace, remove                  ! Basic
 
    integer,public                       :: G_comment_count=0
    character(len=10),public             :: G_comment_style=' '
+   character(len=:),allocatable,save    :: G_scratch_file
+   integer,save                         :: G_scratch_lun=-1
 
    character(len=:),allocatable   :: keywords(:)
    character(len=:),allocatable   :: values(:)
@@ -16899,7 +17531,7 @@ subroutine name(line)                                                 !@(#)name(
 character(len=*)          :: line
    integer                :: i
 
-   if (line(1:1).lt.'A'.or.line(1:1).gt.'Z')then                         ! variable names start with a-z
+   if (line(1:1).lt.'A'.or.line(1:1).gt.'Z'.and.line(1:1).ne.'_')then                         ! variable names start with a-z
      call stop_prep("*prepname* ERROR(016) -VARIABLE NAME DOES NOT START WITH ALPHAMERIC(OR GENERAL SYNTAX ERROR):"//trim(G_source))
    endif
 
@@ -17786,7 +18418,11 @@ end subroutine rewrit
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
 subroutine document(opts)                    ! @(#)document(3f): process BLOCK command to start or stop special processing
-character(len=*),intent(in) :: opts
+character(len=*),intent(in)  :: opts
+integer                      :: ierr
+integer                      :: ios
+integer                      :: i
+character(len=G_line_length) :: options                 ! everything after first word of command till end of line or !
 
 ! CHECK COMMAND SYNTAX
    if(G_outtype.eq.'help')then  ! if in 'help' mode wrap up the routine
@@ -17798,6 +18434,12 @@ character(len=*),intent(in) :: opts
       !x!write(G_iout,'("!",a)')repeat('-',131)
    elseif(G_outtype.eq.'variable')then     ! if in 'variable' mode wrap up the variable
       write(G_iout,'(a)')"'']"
+   elseif(G_outtype.eq.'shell')then
+         close(unit=G_scratch_lun,iostat=ios)
+         call execute_command_line( trim(sget('block_cmd'))//' < '//G_scratch_file//' > '//G_scratch_file//'.out')
+         ierr=filedelete(G_scratch_file)
+         options=G_scratch_file//'.out'
+         call include(options,50+G_iocount)    ! Filenames can be case sensitive
    elseif(G_outtype.eq.'version')then  ! if in 'version' mode wrap up the routine
       write(G_iout,'("''@(#)COMPILED:       ",a,"'',&")') getdate('long')//'>'
       write(G_iout,'(a)')"'']"
@@ -17810,8 +18452,7 @@ character(len=*),intent(in) :: opts
       !x!write(G_iout,'("!",a)')repeat('-',131)
    endif
 
-   call dissect2('block','--oo --file --varname textblock --append .false.',opts) ! parse options on input line
-
+   call dissect2('block','--oo --file --cmd sh --varname textblock --append .false.',opts) ! parse options on input line
    ! if a previous command has opened a --file FILENAME flush it, because a new one is being opened or this is an END command
    ! and if a --file FILENAME has been selected open it
    call print_comment_block()
@@ -17842,6 +18483,22 @@ character(len=*),intent(in) :: opts
 
    case('NULL')
       G_outtype='null'
+
+   case('SHELL')
+      G_outtype='shell'
+      G_MAN_PRINT=.false.
+      G_MAN_COLLECT=.false.
+      if(G_system_on)then                             ! if allowing commands to be executed
+         flush(unit=G_iout,iostat=ios)
+         !!G_scratch_file=scratch('prep_scratch.'))
+         G_scratch_file=trim(uniq(get_tmp()//'prep_scratch.'))  !! THIS HAS TO BE A UNIQUE NAME -- IMPROVE THIS
+         G_scratch_lun=fileopen(G_scratch_file,'rw',ierr)
+         if(ierr.lt.0)then
+            call stop_prep('*prep:filter* ERROR: FILTER COMMAND FAILED TO OPEN PROCESS:'//trim(G_SOURCE))
+         endif
+      else
+         call stop_prep('*prep:filter* ERROR: FILTER COMMAND BLOCK ENCOUNTERED BUT SYSTEM COMMANDS NOT ENABLED:'//trim(G_SOURCE))
+      endif
 
    case('VARIABLE')
       G_outtype='variable'
@@ -17962,7 +18619,9 @@ subroutine print_comment_block() !@(#)print_comment_block(3f): format comment bl
 
       open(unit=70,file=filename,iostat=ios,action='write',position=G_MAN_FILE_POSITION)
 
+
       if(ios.ne.0)then
+
          call stop_prep('ERROR(054) print_comment_block - FAILED TO OPEN DOCUMENT OUTPUT FILE:'//trim(filename))
       else
          if(len(G_MAN).gt.1)then                   ! the way the string is built it starts with a newline
@@ -17990,6 +18649,7 @@ end subroutine print_comment_block
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
 subroutine format_g_man()
+   character(len=:),allocatable   :: array1(:)   ! output array of tokens
    character(len=:),allocatable   :: array(:) ! output array of tokens
    integer                        :: ios
    integer                        :: i
@@ -18000,7 +18660,11 @@ subroutine format_g_man()
 
          case('doxygen')                 ! convert plain text to doxygen comment blocks with some automatic markdown highlights
             if(len(G_MAN).gt.1)then      ! the way the string is built it starts with a newline
-               CALL split(G_MAN,array,delimiters=new_line('N'),nulls='return') ! parse string to an array parsing on delimiters
+               CALL split(G_MAN,array1,delimiters=new_line('N'),nulls='return') ! parse string to an array parsing on delimiters
+               if(allocated(array))deallocate(array)
+               allocate(character(len=len(array1)+6) :: array(size(array1)))  ! make room for !! and ##
+               array(:)=array1
+               deallocate(array1)
                do i=1,size(array)        ! lines starting with a letter and all uppercase letters is prefixed with "##"
                   if( upper(array(i)).eq.array(i) .and. isalpha(array(i)(1:1)).and.lower(array(i)).ne.array(i))then
                      array(i)='##'//trim(array(i))
@@ -18027,7 +18691,9 @@ subroutine format_g_man()
 
          case('ford')                    ! convert plain text to doxygen comment blocks with some automatic markdown highlights
             if(len(G_MAN).gt.1)then      ! the way the string is built it starts with a newline
-               CALL split(G_MAN,array,delimiters=new_line('N'),nulls='return') ! parse string to an array parsing on delimiters
+               CALL split(G_MAN,array1,delimiters=new_line('N'),nulls='return') ! parse string to an array parsing on delimiters
+               array=[character(len=(len(array1)+6)) :: array1] !! pad with trailing spaces
+               deallocate(array1)
                do i=1,size(array)        ! lines starting with a letter and all uppercase letters is prefixed with "##"
                   if( upper(array(i)).eq.array(i) .and. isalpha(array(i)(1:1)).and.lower(array(i)).ne.array(i))then
                      array(i)='## '//trim(array(i))
@@ -18104,46 +18770,47 @@ end subroutine stops
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
 subroutine debug_state(msg)                        !@(#)debug(3f): process $SHOW command or state output when errors occur
-character(len=*),intent(in)   :: msg
-   integer                    :: i
+character(len=*),intent(in) :: msg
+integer                     :: i
+character(len=*),parameter  :: fmt='(*(g0,1x))'
 
    write(G_iout,'(a)')'!==============================================================================='
    write(G_iout,'(a)')'! '//trim(msg)
 
-   write(G_iout,'(a)')'! CURRENT STATE OF PREP(1):'
-   write(G_iout,'("! TOTAL LINES READ ............... ",i0)')G_io_total_lines     ! write number of lines read
-   write(G_iout,'("! CONDITIONAL_NESTING_LEVEL....... ",i0)')G_nestl              ! write nesting level
+   write(G_iout,'(a)')'! Current state of prep(1):('//getdate()//')'
+   write(G_iout,'("! Total lines read ............... ",i0)')G_io_total_lines     ! write number of lines read
+   write(G_iout,'("! Conditional nesting level....... ",i0)')G_nestl              ! write nesting level
    write(G_iout,'("! G_WRITE (general processing).... ",l0)')G_write              ! non-if/else/endif directives processed
    write(G_iout,'("! G_LLWRITE (write input lines)... ",l0)')G_llwrite            ! non-if/else/endif directives processed
-   write(G_iout,'("! DATE............................ ",a)')getdate()             ! current time stamp
-   call write_arguments()
-   write(G_iout,'(a)')'! VARIABLES:'
-   do i=1,G_numdef                                                                ! print variable dictionary
-      write(G_iout,'("! ",a," ! ",a)')G_defvar(i),G_defval(i)                     ! write variable and corresponding value
-   enddo
 
-   write(G_iout,'(a)')'! OPEN FILES:'
-   write(G_iout,'(a)')'!     ! ---- ! UNIT ! LINE NUMBER ! FILENAME'
+   call write_arguments()
+
+   write(G_iout,'(a)')'! Open files:'
+   write(G_iout,'(a)')'!    unit ! line number ! filename'
    do i=1,G_iocount                                                               ! print file dictionary
       ! write table of files
-      write(G_iout,'("!     ! ",i4," ! ",i4," ! ",i11," ! ",a)')i,  &
+      write(G_iout,'("!    ",i4," ! ",i11," ! ",a)') &
       &  G_file_dictionary(i)%unit_number,    &
       &  G_file_dictionary(i)%line_number,    &
       &  trim(G_file_dictionary(i)%filename )
    enddo
 
-   write(G_iout,'(a)')'! INCLUDE DIRECTORIES:'
+   write(G_iout,'(a)')'! INCLUDE directories:'
    do i=1,G_inc_count
-      write(G_iout,'("! ",a)') trim(G_inc_files(i))
+      write(G_iout,'("!    ",a)') trim(G_inc_files(i))
+   enddo
+
+   write(G_iout,'(a)')'! Variables:'
+   do i=1,G_numdef                                                                 ! print variable dictionary
+      write(G_iout,fmt)"!    $DEFINE",trim(G_defvar(i)),' = ',adjustl(G_defval(i)) ! write variable and corresponding value
    enddo
 
    if(size(keywords).gt.0)then
-      write(G_iout,'(a)')'! SET STRINGS:'
-      write(G_iout,*)'>>>',size(keywords)
-      write(G_iout,'(*("! ",a,"==> ",a,/))')(keywords(i),values(i)(:counts(i)),i=1,size(keywords))
+      write(G_iout,fmt)'! SET strings:(There are',size(keywords),'keywords defined)'
+      write(G_iout,'(3(g0,1x))')('!    $SET',keywords(i),values(i)(:counts(i)),i=1,size(keywords))
    endif
 
-   write(G_iout,'(a)')'!==============================================================================='
+   write(G_iout,'(a)')'!-------------------------------------------------------------------------------'
 end subroutine debug_state
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
@@ -18156,12 +18823,13 @@ subroutine write_arguments() ! @(#)write_arguments(3f): return all command argum
    integer                      :: icount           !  count of number of arguments available
    character(len=255)           :: value            !  store individual arguments one at a time
 
-   write(G_iout,'(a)',advance='no')'! ARGUMENTS ...................... '
+   write(G_iout,'(a)',advance='no')'! Arguments ...................... '
    icount=command_argument_count()                  ! intrinsic gets number of arguments
    do i=1,icount
       call get_command_argument(i,value,ilength,istatus)
       write(G_iout,'(a,1x)',advance='no')value(:ilength)
    enddo
+   write(G_iout,'(a)')
    call write_out('')
 end subroutine write_arguments
 !===================================================================================================================================
@@ -18485,11 +19153,14 @@ help_text=[ CHARACTER(LEN=128) :: &
 '    :FILE AND TEXT BLOCK USAGE                                                  ',&
 '     $OUTPUT   filename  [-append]                        [! comment ]          ',&
 '     $INCLUDE  filename                                   [! comment ]          ',&
-!     change so just $BLOCK name/$ENDBLOCK and
-!     $OUTPUT $BLOCK $POST all replaced by $POST if no options slurp file and process if any options
+![=========
+!     consider to change so just $BLOCK name/$ENDBLOCK and
+!     $OUTPUT $BLOCK $POST all replaced by $POST if no options gulp file and process if any options so what $BLOCK does now
 !     $BLOCK
 !     $ENDBLOCK
+!=========]
 '     $BLOCK    [comment|null|write|help|version|variable [-varname NAME]]       ',&
+!'               [shell [-cmd NAME]] |                                            ',&
 '               [-file NAME [-append]]                     [! comment ]          ',&
 '                                                                                ',&
 '    :IDENTIFIERS                                                                ',&
@@ -18550,7 +19221,7 @@ help_text=[ CHARACTER(LEN=128) :: &
 '   --version        Display version and exit                                    ',&
 '   --width n        Maximum line length of the output file. The default is 1024.',&
 '                    Typically used to trim fixed-format FORTRAN code that       ',&
-'                    contains comments or "ident" labels past column 72 when     ',&
+'                    contains comments or "ident" labels past column 72          ',&
 '                    when compiling fixed-format Fortran code.                   ',&
 '                                                                                ',&
 '   DIRECTIVES                                                                   ',&
@@ -18673,11 +19344,14 @@ help_text=[ CHARACTER(LEN=128) :: &
 '                 The Fortran generated is free-format. It is assumed the        ',&
 '                 output will not generate lines over 132 columns.               ',&
 '      HELP:      write text as a subroutine called HELP_USAGE                   ',&
-'      VERSION:   write text as a subroutine called HELP_VERSION                 ',&
-'                 prefixing lines with @(#) for use with the what(1) command.    ',&
+'      VERSION:   write text as a subroutine called HELP_VERSION prefixing       ',&
+'                 lines with @(#) for use with the what(1) command.              ',&
 '      NULL:      Do not write into current output file                          ',&
-'      VARIABLE:  write as a text variable. The name may be defined using the    ',&
-'                 --varname switch. Default name is "textblock".                 ',&
+'      VARIABLE:  write as a text variable. The name may be defined using        ',&
+'                 the --varname switch. Default name is "textblock".             ',&
+!'      SHELL:     run text in block as a shell and replace with the stdout       ',&
+!'                 generated by the shell. The shell may be specified by the -cmd ',&
+!'                 option. The default shell is bash(1).                          ',&
 '      END:       End block of specially processed text                          ',&
 '                                                                                ',&
 '   If the "-file NAME" option is present the *unaltered* text is written to     ',&
@@ -18705,22 +19379,35 @@ help_text=[ CHARACTER(LEN=128) :: &
 '    $show                                                                       ',&
 '    $stop 0                                                                     ',&
 '                                                                                ',&
-'    !======================================================================     ',&
-'    !  CURRENT STATE                                                            ',&
-'    !     TOTAL LINES READ ............ 2                                       ',&
-'    !     CONDITIONAL_NESTING_LEVEL.... 0                                       ',&
-'    !     DATE......................... 11:18 21Jun2013                         ',&
-'    !     ARGUMENTS ................... A=10 B C D -o paper                     ',&
-'    !  VARIABLES:                                                               ',&
-'    !     ! A                               !          10                       ',&
-'    !     ! B                               !           1                       ',&
-'    !     ! C                               !           1                       ',&
-'    !     ! D                               !           1                       ',&
-'    !     ! Z                               !          22                       ',&
-'    !  OPEN FILES:                                                              ',&
-'    !     ! ---- ! UNIT ! LINE NUMBER ! FILENAME                                ',&
-'    !     !    1 !    5 !           2 !                                         ',&
-'    !======================================================================     ',&
+'     > !================================================================        ',&
+'     > !                                                                        ',&
+'     > ! Current state of prep(1):(18:39 20 Jun 2021)                           ',&
+'     > ! Total lines read ............... 2                                     ',&
+'     > ! Conditional nesting level....... 0                                     ',&
+'     > ! G_WRITE (general processing).... T                                     ',&
+'     > ! G_LLWRITE (write input lines)... T                                     ',&
+'     > ! Arguments ...................... A=10 B C D -o paper                   ',&
+'     > ! Open files:                                                            ',&
+'     > !    unit ! line number ! filename                                       ',&
+'     > !       5 !           2 ! @                                              ',&
+'     > ! INCLUDE directories:                                                   ',&
+'     > !    .                                                                   ',&
+'     > ! Variables:                                                             ',&
+'     > !    $DEFINE UNKNOWN  =  0                                               ',&
+'     > !    $DEFINE LINUX  =  1                                                 ',&
+'     > !    $DEFINE MACOS  =  2                                                 ',&
+'     > !    $DEFINE WINDOWS  =  3                                               ',&
+'     > !    $DEFINE CYGWIN  =  4                                                ',&
+'     > !    $DEFINE SOLARIS  =  5                                               ',&
+'     > !    $DEFINE FREEBSD  =  6                                               ',&
+'     > !    $DEFINE OPENBSD  =  7                                               ',&
+'     > !    $DEFINE OS  =  1                                                    ',&
+'     > !    $DEFINE A  =  10                                                    ',&
+'     > !    $DEFINE B  =  1                                                     ',&
+'     > !    $DEFINE C  =  1                                                     ',&
+'     > !    $DEFINE D  =  1                                                     ',&
+'     > !    $DEFINE Z  =  22                                                    ',&
+'     > !================================================================        ',&
 '                                                                                ',&
 '   $STOP stop_value                                                             ',&
 '                                                                                ',&
@@ -18799,7 +19486,7 @@ help_text=[ CHARACTER(LEN=128) :: &
 '   $IF constructs can be nested up to 20 levels deep. Note that using           ',&
 '   more than two levels typically makes input files less readable.              ',&
 '                                                                                ',&
-'   $BLOCK END is required after a $BLOCK or --file FILENAME is not written.     ',&
+'   $BLOCK is required after a $BLOCK or --file FILENAME is not written.         ',&
 '                                                                                ',&
 '   Nesting of $BLOCK sections not allowed.                                      ',&
 '                                                                                ',&
@@ -18824,21 +19511,21 @@ help_text=[ CHARACTER(LEN=128) :: &
 '                                                                                ',&
 '  Define variables on command line:                                             ',&
 '                                                                                ',&
-'   Typically, variables are defined on the command line when prep(1) is invoked ',&
-'   but can be grouped together into small files that are included with a        ',&
-'   $INCLUDE or as input files.                                                  ',&
+'   Typically, variables are defined on the command line when prep(1) is         ',&
+'   invoked but can be grouped together into small files that are included       ',&
+'   with a $INCLUDE or as input files.                                           ',&
 '                                                                                ',&
 '     prep HP size=64 -i hp_directives.dirs test.F90 -o test_out.f90             ',&
 '                                                                                ',&
-'   defines variables HP and SIZE as if the expressions had been on a $DEFINE    ',&
-'   and reads file "hp_directives.dirs" and then test.F90. Output is directed    ',&
-'   to test_out.f90                                                              ',&
+'   defines variables HP and SIZE as if the expressions had been on a            ',&
+'   $DEFINE and reads file "hp_directives.dirs" and then test.F90.               ',&
+'   Output is directed to test_out.f90                                           ',&
 '                                                                                ',&
 '  Basic conditionals:                                                           ',&
 '                                                                                ',&
-'   > $! set value of variable "a" if it is not specified on the prep(1) command.',&
+'   > $! set variable "a" if not specified on the prep(1) command.               ',&
 '   > $IF .NOT.DEFINED(A)                                                        ',&
-'   > $   DEFINE a=1  ! so only define the following first version of SUB(3f)    ',&
+'   > $   DEFINE a=1  ! so only define the first version of SUB(3f) below        ',&
 '   > $ENDIF                                                                     ',&
 '   >    program conditional_compile                                             ',&
 '   >       call sub()                                                           ',&
@@ -18862,51 +19549,49 @@ help_text=[ CHARACTER(LEN=128) :: &
 '                                                                                ',&
 '   > $!                                                                         ',&
 '   > $BLOCK NULL --file manual.tex                                              ',&
-'   > This is a block of text that will be ignored on output but optionally      ',&
-'   > written to a doc/ file when $PREP_DOCUMENT_DIR is set.                     ',&
-'   > $BLOCK END                                                                 ',&
+'   > This is a block of text that will be ignored on output but                 ',&
+'   > optionally written to a doc/ file when $PREP_DOCUMENT_DIR is set.          ',&
+'   > $BLOCK                                                                     ',&
 '   > $!                                                                         ',&
 '   > $BLOCK COMMENT --file manual.tex --append                                  ',&
-'   > This is a block of text that will be converted to comments and optionally  ',&
-'   > appended to a doc/ file when $PREP_DOCUMENT_DIR is set.                    ',&
-'   > $BLOCK END                                                                 ',&
+'   > This is a block of text that will be converted to comments and             ',&
+'   > optionally appended to a doc/ file when $PREP_DOCUMENT_DIR is set.         ',&
+'   > $BLOCK                                                                     ',&
 '   > $!                                                                         ',&
 '                                                                                ',&
-'  Creating a help_usage(3f) subroutine and writing the same documentation to    ',&
-'  a doc file (if the environment variable $PREP_DOCUMENT_DIR is set).           ',&
+'  Creating a help_usage(3f) subroutine and writing the same documentation       ',&
+'  to a doc file (if the environment variable $PREP_DOCUMENT_DIR is set).        ',&
 '                                                                                ',&
-'   > $!@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@',&
-'   > $! generate help_usage() procedure and file to run thru txt2man(1) or other',&
-'   > $! filters to make man(1) page if $PREP_DOCUMENT_DIR is set.               ',&
-'   > $!@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@',&
+'   > $!@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@         ',&
+'   > $! generate help_usage() procedure and file to run thru txt2man(1)         ',&
+'   > $! to make man(1) page if $PREP_DOCUMENT_DIR is set.                       ',&
+'   > $!@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@         ',&
 '   > $BLOCK HELP --file conditional_compile.man                                 ',&
 '   > NAME                                                                       ',&
-'   >     conditional_compile - basic example for prep(1) pre-processor.         ',&
+'   >    conditional_compile - basic example for prep(1) pre-processor.          ',&
 '   > SYNOPSIS                                                                   ',&
-'   >     conditional_example [--help] [--version]                               ',&
+'   >    conditional_example [--help] [--version]                                ',&
 '   > DESCRIPTION                                                                ',&
-'   >     This is a basic example program showing how documentation can be used  ',&
-'   >     to generate program help text                                          ',&
+'   >    This is a basic example program showing how documentation can be        ',&
+'   >    used to generate program help text                                      ',&
 '   > OPTIONS                                                                    ',&
-'   >        --help                                                              ',&
-'   >               display this help and exit                                   ',&
-'   >        --version                                                           ',&
-'   >               output version information and exit                          ',&
-'   > $BLOCK END                                                                 ',&
+'   >    --help     display this help and exit                                   ',&
+'   >    --version  output version information and exit                          ',&
+'   > $BLOCK                                                                     ',&
 '                                                                                ',&
 '  Creating a help_version(3f) subroutine                                        ',&
 '                                                                                ',&
-'   > $!@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@',&
+'   > $!@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@         ',&
 '   > $! generate help_version() procedure                                       ',&
 '   > $BLOCK VERSION                                                             ',&
-'   > DESCRIPTION: example program showing conditional compilation with prep(1)  ',&
+'   > DESCRIPTION: example program showing conditional compilation               ',&
 '   > PROGRAM:     conditional_compile                                           ',&
 '   > VERSION:     1.0.0, 20160703                                               ',&
 '   > AUTHOR:      John S. Urban                                                 ',&
-'   > $BLOCK END                                                                 ',&
-'   > $!@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@',&
+'   > $BLOCK                                                                     ',&
+'   > $!@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@        ',&
 '                                                                                ',&
-'  Sample program using help_usage(3f) and help_version(3f) and M_kracken95(3f): ',&
+'  Sample program using help_usage(f), help_version(3f) and M_kracken95(3f):     ',&
 '                                                                                ',&
 '   > program conditional_compile                                                ',&
 '   >    use M_kracken95, only : kracken, lget                                   ',&
@@ -18921,8 +19606,8 @@ help_text=[ CHARACTER(LEN=128) :: &
 ' SET USAGE                                                                      ',&
 '  Note values are case-sensitive but variable names are not, and there are      ',&
 '  pre-defined values for input file, line in input file, date and time that     ',&
-'  are NOT ACTIVE until at least one $SET or $IMPORT directive is processed. That',&
-'  is, unless a variable name is defined no ${NAME} expansion occurs.            ',&
+'  are NOT ACTIVE until at least one $SET or $IMPORT directive is processed.     ',&
+'  That is, unless a variable name is defined no ${NAME} expansion occurs.       ',&
 '                                                                                ',&
 '   > $set author  William Shakespeare                                           ',&
 '   > $import HOME                                                               ',&
@@ -18976,7 +19661,9 @@ character(len=*),intent(in)    :: line
 
    if(G_write_what)then              ! echo "what" lines to stderr
       istart=index(line,'@(#)')
-      write(ERROR_UNIT,'("-->>",a)')trim(line(istart+4:))
+      if(istart.ne.0)then
+         write(ERROR_UNIT,'("-->>",a)')trim(line(istart+4:))
+      endif
    endif
 
    call www(line)
@@ -18985,10 +19672,13 @@ end subroutine write_out
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
 subroutine www(line) ! @(#)www(3f):  change line into a WRITE, HELP/VERSION, COMMENT output line
+integer,parameter              :: linewidth=80
 character(len=*),intent(in)    :: line
 character(len=:),allocatable   :: buff
 character(len=115)             :: chunk
 integer                        :: ilen
+integer                        :: ios
+character(len=256)             :: message
 
    select case(trim(G_outtype))
 
@@ -18997,17 +19687,24 @@ integer                        :: ilen
 
    case('null')                                ! do not write
 
+   case('shell')
+      write(G_scratch_lun,'(a)',iostat=ios,iomsg=message)trim(line)
+      if(ios.lt.0)then
+         call stop_prep('*prep:stop* ERROR(68) - FAILED TO WRITE TO PROCESS:'//trim(line)//':'//trim(message))
+      endif
+
    case('variable')
       buff=trim(line)                          ! do not make a line over 132 characters. Trim input line if needed
-      buff=buff//repeat(' ',max(80,len(buff))) ! ensure space in buffer for substitute
+      buff=buff//repeat(' ',max(linewidth,len(buff))) ! ensure space in buffer for substitute
       call substitute(buff,"'","''")           ! change single quotes in input to two adjacent single quotes
-      ilen=max(len_trim(buff),80)              ! make all lines have at least 80 characters in the string for a more legible output
+      ilen=min(len_trim(buff),linewidth)       ! make all lines have at least linewidth characters for a more legible output
       write(G_iout,'("''",a,"'',&")') buff(:ilen)
+
    case('help')
       buff=trim(line)                          ! do not make a line over 132 characters. Trim input line if needed
-      buff=buff//repeat(' ',max(80,len(buff))) ! ensure space in buffer for substitute
+      buff=buff//repeat(' ',max(linewidth,len(buff))) ! ensure space in buffer for substitute
       call substitute(buff,"'","''")           ! change single quotes in input to two adjacent single quotes
-      ilen=max(len_trim(buff),80)              ! make all lines have at least 80 characters in the string for a more legible output
+      ilen=max(len_trim(buff),linewidth)              ! make all lines have at least 80 characters for a more legible output
       write(G_iout,'("''",a,"'',&")') buff(:ilen)
 
    case('version')                             ! write version information with SCCS ID prefix for use with what(1) command
@@ -19016,7 +19713,7 @@ integer                        :: ilen
                                                !*! should handle longer lines and split them
    case('write')                               ! convert string to a Fortran write statement to unit "IO"
       buff=trim(line)                          ! do not make a line over 132 characters. Trim input line if needed
-      buff=buff//repeat(' ',max(80,len(buff))) ! ensure space in buffer for substitute
+      buff=buff//repeat(' ',max(linewidth,len(buff))) ! ensure space in buffer for substitute
       call substitute(buff,"'","''")
       write(G_iout,'(a)',advance='no')'write(io,''(a)'')'''
       chunk=buff
@@ -19480,6 +20177,10 @@ logical                       :: isscratch
       endif
 
       G_iocount=G_iocount-1
+      if(G_scratch_lun.ne.-1)then
+         ios=filedelete(G_scratch_file//'.out')
+         G_scratch_lun=-1
+      endif
 
       if(G_iocount.lt.1)exit
    enddo READLINE
@@ -19492,3 +20193,844 @@ end program prep
 !===================================================================================================================================
 !()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
 !===================================================================================================================================
+ 
+ 
+!>>>>> build/dependencies/M_strings/src/M_strings_oop.f90
+!>
+!!##NAME
+!!    M_strings_oop(3f) - [M_strings:INTRO] OOP Fortran string module
+!!
+!!##SYNOPSIS
+!!
+!!    use M_strings_oop
+!!
+!!##DESCRIPTION
+!!    The M_strings(3fm) module is a collection of Fortran procedures
+!!    that supplement the built-in intrinsic string routines. Routines
+!!    for parsing, tokenizing, changing case, substituting new strings for
+!!    substrings, locating strings with simple wildcard expressions, removing
+!!    tabs and line terminators and other string manipulations are included.
+!!
+!!    M_strings_oop(3fm) is a companion module that provides an OOP interface
+!!    to the M_strings module.
+!!
+!!
+!!##SEE ALSO
+!!    There are additional routines in other GPF modules for working with
+!!    expressions (M_calculator), time strings (M_time), random strings
+!!    (M_random, M_uuid), lists (M_list), and interfacing with the C regular
+!!    expression library (M_regex).
+!!
+!!##EXAMPLES
+!!
+!!    Each of the procedural functions in M_strings(3fm) includes an example
+!!    program in the corresponding man(1) page for the function. The
+!!    object-oriented interface does not have individual man(1) pages,
+!!    but is instead demonstrated using the following example program:
+!!
+!!     program demo_M_strings_oop
+!!     !
+!!     ! This is an example using the object-oriented class/type model
+!!     ! defined in M_strings_oop
+!!     ! This is essentially the same functionality as the procedures
+!!     ! combined with several Fortran intrinsics and overloaded operators
+!!     !
+!!     use M_strings_oop,only : string, p
+!!     implicit none
+!!     TYPE(string) :: str1
+!!     TYPE(string) :: str2
+!!     TYPE(string) :: str3
+!!     TYPE(string) :: str4
+!!     !==============================================================================
+!!       write(*,*)'exercise the M_STRING_OOP module interface'
+!!       ! draw a break line in the output
+!!       write(*,*)repeat('=',78)
+!!       write(*,*)'Call methods of type(STRING)'
+!!       ! define TYPE(STRING) with constructor
+!!       str2=string('   This  is  a  String!       ')
+!!       str4=string(' a  String ')
+!!       write(*,*)repeat('=',78)
+!!       ! print members of type
+!!       write(*,101)'str2%str is ................ ',str2%str
+!!       ! same as intrinsic LEN()
+!!       write(*,202)'len ........................ ',str2%len()
+!!       ! same as intrinsic INDEX()
+!!       write(*,202)'len_trim ................... ',str2%len_trim()
+!!       ! same as intrinsic INDEX()
+!!       write(*,202)'index("is")................. ',str2%index("is")
+!!       ! same as intrinsic INDEX()
+!!       write(*,202)'index("is",back=.T.) ....... ',str2%index("is",back=.TRUE.)
+!!       ! output TYPE(STRING) with %str all uppercase
+!!       write(*,101)'upper ...................... ',p(str2%upper())
+!!       ! output TYPE(STRING) with %str all miniscule
+!!       write(*,101)'lower ...................... ',p(str2%lower())
+!!       ! output TYPE(STRING) with %str reversed
+!!       write(*,101)'reverse .................... ',p(str2%reverse())
+!!       ! same as intrinsic ADJUSTL()
+!!       write(*,101)'adjustl .................... ',p(str2%adjustl())
+!!       ! same as intrinsic ADJUSTR()
+!!       write(*,101)'adjustr .................... ',p(str2%adjustr())
+!!       ! center string in current string length
+!!       write(*,101)'adjustc .................... ',p(str2%adjustc())
+!!       ! center string in string length of NN
+!!       write(*,101)'adjustc(49) ................ ',p(str2%adjustc(49))
+!!       ! force %str to be NN characters long
+!!       write(*,101)'lenset(49) ................. ',p(str2%lenset(49))
+!!       ! same as intrinsic TRIM()
+!!       write(*,101)'trim ....................... ',p(str2%trim())
+!!       ! trim leading and trailing spaces
+!!       write(*,101)'crop ....................... ',p(str2%crop())
+!!       ! calls M_strings procedure SUBSTITUTE()
+!!       write(*,101)'substitute("This","Here") .. ',p(str2%substitute("This","Here"))
+!!       ! calls M_strings procedure COMPACT()
+!!       write(*,101)'compact .................... ',p(str2%compact())
+!!       write(*,101)'compact("") ................ ',p(str2%compact(""))
+!!       write(*,101)'compact(":") ............... ',p(str2%compact(":"))
+!!       ! calls M_strings procedure TRANSLITERATE()
+!!       write(*,101)'transliterate("aei","VWX") . ',p(str2%transliterate("aei","VWX"))
+!!       write(*,101)'transliterate("aeiou"," ") . ',p(str2%transliterate("aeiou"," "))
+!!       write(*,101)'transliterate("aeiou","") .. ',p(str2%transliterate("aeiou",""))
+!!       write(*,101)'transliterate(" aeiou","") . ',p(str2%transliterate(" aeiou",""))
+!!       ! calls M_strings procedure SWITCH()
+!!       write(*,404)'chars .................... . ',str4%chars()
+!!
+!!       write(*,*)repeat('=',78)
+!!       str2%str='\t\tSome tabs\t   x\bX '
+!!       write(*,101)'str2%str ................... ',str2%str
+!!       write(*,101)'expand ..................... ',p(str2%expand())
+!!       str2=str2%expand()
+!!       ! calls M_strings procedure NOTABS()
+!!       write(*,101)'notabs ..................... ',p(str2%notabs())
+!!       ! calls M_strings procedure NOESC()
+!!       write(*,101)'noesc ...................... ',p(str2%noesc())
+!!
+!!       write(*,*)repeat('=',78)
+!!       write(*,*)'Casting to numeric variables'
+!!       str3=string('   12.345678901234567e1        ')
+!!       write(*,101)'str3%str ................... ',str3%str
+!!       ! calls M_strings procedure STRING_TO_VALUE()
+!!       write(*,*)'int  ....................... ', str3%int()
+!!       ! calls M_strings procedure STRING_TO_VALUE()
+!!       write(*,*)'real ....................... ', str3%real()
+!!       ! calls M_strings procedure STRING_TO_VALUE()
+!!       write(*,*)'dble ....................... ', str3%dble()
+!!
+!!       write(*,*)repeat('=',78)
+!!       write(*,*)'Matching simple globbing patterns'
+!!       str3=string('   12.345678901234567e1        ')
+!!       str3=string('Four score and seven years ago')
+!!       write(*,101)'str3%str ................... ',str3%str
+!!       ! calls M_strings procedure MATCHW
+!!       write(*,*)'match("Fo*") ............... ', str3%match("Fo*")
+!!       ! calls M_strings procedure MATCHW
+!!       write(*,*)'match("and") ............... ', str3%match("and")
+!!       ! calls M_strings procedure MATCHW
+!!       write(*,*)'match("*and*") ............. ', str3%match("*and*")
+!!
+!!       101 format(1x,a,"[",a,"]")
+!!       202 format(1x,a,i0)
+!!       303 format(1x,*(l3))
+!!       404 format(1x,a,*("[",a1,"]":))
+!!
+!!       write(*,*)repeat('=',78)
+!!       write(*,*)'OVERLOADED OPERATORS (add and subtract,return TYPE(STRING))'
+!!       str1%str='123.456'
+!!       str2%str='AaBbCcDdEeFfGgHhIiJj AaBbCcDdEeFfGgHhIiJj'
+!!       write(*,101)'str1%str ................... ',str1%str
+!!       write(*,101)'str2%str ................... ',str2%str
+!!       write(*,*)'str1 + str2 ................ ',p(str1 + str2)
+!!       ! a string that looks like a numeric value can have a value added
+!!       write(*,*)'str1 + 20000 ............... ',p(str1 +20000)
+!!       write(*,*)'str1 - 20.0 ................ ',p(str1 -20.0)
+!!       write(*,*)'str2 - "Aa" (removes ALL) .. ',p(str2 - 'Aa')
+!!
+!!       write(*,*)repeat('=',78)
+!!       write(*,*)'OVERLOADED OPERATORS (multiply,return TYPE(STRING))'
+!!       str1%str='AaBbCcDdEeFfGgHhIiJj'
+!!       write(*,101)'str1%str ................... ',str1%str
+!!       write(*,*)'str1 * 3 ................... ',p(str1 * 3)
+!!
+!!       write(*,*)repeat('=',78)
+!!       write(*,*)'OVERLOADED OPERATORS (//,return TYPE(STRING))'
+!!       str1%str='String one:'
+!!       str2%str='String two:'
+!!       write(*,101)'str1%str ................... ',str1%str
+!!       write(*,101)'str2%str ................... ',str2%str
+!!       write(*,*)'str1 // str2 ................ ',p(str1 // str2)
+!!       ! numeric values are converted to strings
+!!       write(*,*)'str1 // 20000 ............... ',p(str1 // 20000)
+!!       write(*,*)'str1 // 20.0 ................ ',p(str1 // 20.0)
+!!
+!!       write(*,*)repeat('=',78)
+!!       write(*,*)'OVERLOADED OPERATORS (logical comparisons,return logical)'
+!!       ! NOTE: comparisons are performed on the character variable members
+!!       !       of the type(string)
+!!       str1%str='abcdefghij'
+!!       str2%str='klmnopqrst'
+!!       write(*,101)'str1%str ................... ',str1%str
+!!       write(*,101)'str2%str ................... ',str2%str
+!!       write(*,*)': EQ LT GT LE GE NE'
+!!       write(*,*)'compare str1 to str1'
+!!       write(*,303)str1.eq.str1  ,str1.lt.str1  ,str1.gt.str1  ,str1.le.str1 &
+!!                  & ,str1.ge.str1  ,str1.ne.str1
+!!       write(*,*)'compare str1 to str2'
+!!       write(*,303)str1.eq.str2  ,str1.lt.str2  ,str1.gt.str2  ,str1.le.str2 &
+!!                  & ,str1.ge.str2  ,str1.ne.str2
+!!       write(*,*)'compare str2 to str1'
+!!       write(*,303)str2.eq.str1  ,str2.lt.str1  ,str2.gt.str1  ,str2.le.str1 &
+!!                  & ,str2.ge.str1  ,str2.ne.str1
+!!
+!!       write(*,*)repeat('=',78)
+!!
+!!     end program demo_M_strings_oop
+!!
+!! Expected output
+!!
+!!      exercise the M_STRING_OOP module interface
+!!      =============================================================================
+!!      Call methods of type(STRING)
+!!      =============================================================================
+!!      str2%str is ................ [   This  is  a  String!             ]
+!!      len ........................ 36
+!!      len_trim ................... 23
+!!      index("is")................. 6
+!!      index("is",back=.T.) ....... 10
+!!      upper ...................... [   THIS  IS  A  STRING!             ]
+!!      lower ...................... [   this  is  a  string!             ]
+!!      reverse .................... [             !gnirtS  a  si  sihT   ]
+!!      adjustl .................... [This  is  a  String!                ]
+!!      adjustr .................... [                This  is  a  String!]
+!!      adjustc .................... [        This  is  a  String!        ]
+!!      adjustc(49) ................ [              This  is  a  String!               ]
+!!      lenset(49) ................. [   This  is  a  String!                          ]
+!!      trim ....................... [   This  is  a  String!]
+!!      crop ....................... [This  is  a  String!]
+!!      substitute("This","Here") .. [   Here  is  a  String!             ]
+!!      compact .................... [This is a String!]
+!!      compact("") ................ [ThisisaString!]
+!!      compact(":") ............... [This:is:a:String!]
+!!      transliterate("aei","VWX") . [   ThXs  Xs  V  StrXng!             ]
+!!      transliterate("aeiou"," ") . [   Th s   s     Str ng!             ]
+!!      transliterate("aeiou","") .. [   Ths  s    Strng!                 ]
+!!      transliterate(" aeiou","") . [ThssStrng!                          ]
+!!      chars .................... . [ ][a][ ][s][t][r][i][n][g][ ]
+!!      =============================================================================
+!!      str2%str ................... [\t\tSome tabs\t   x\bX ]
+!!      expand ..................... [         Some tabs          x   X]
+!!      notabs ..................... [                Some tabs          x    X]
+!!      noesc ...................... [  Some tabs    x X]
+!!      =============================================================================
+!!      Casting to numeric variables
+!!      str3%str ................... [   12.345678901234567e1        ]
+!!      int  .......................          123
+!!      real .......................    123.456787
+!!      dble .......................    123.45678901234567
+!!      =============================================================================
+!!      Matching simple globbing patterns
+!!      str3%str ................... [Four score and seven years ago]
+!!      match("Fo*") ...............  T
+!!      match("and") ...............  F
+!!      match("*and*") .............  T
+!!      ==============================================================================
+!!      OVERLOADED OPERATORS (add and subtract, return TYPE(STRING))
+!!      str1%str ................... [123.456]
+!!      str2%str ................... [AaBbCcDdEeFfGgHhIiJj AaBbCcDdEeFfGgHhIiJj]
+!!      str1 + str2 ................ 123.456 AaBbCcDdEeFfGgHhIiJj AaBbCcDdEeFfGgHhIiJj
+!!      str1 + 20000 ............... 20123.455999999998
+!!      str1 - 20.0 ................ -103.456
+!!      str2 - "Aa" (removes ALL) .. BbCcDdEeFfGgHhIiJj BbCcDdEeFfGgHhIiJj
+!!      =============================================================================
+!!      OVERLOADED OPERATORS (multiply, return TYPE(STRING))
+!!      str1%str ................... [AaBbCcDdEeFfGgHhIiJj]
+!!      str1 * 3 ................... AaBbCcDdEeFfGgHhIiJjAaBbCcDdEeFfGgHhIiJjAaBbCcDdEeFfGgHhIiJj
+!!      =============================================================================
+!!      OVERLOADED OPERATORS (//, return TYPE(STRING))
+!!      str1%str ................... [String one:]
+!!      str2%str ................... [String two:]
+!!      str1 // str2 ................ String one:String two:
+!!      str1 // 20000 ............... String one:20000
+!!      str1 // 20.0 ................ String one:20.0
+!!      =============================================================================
+!!      OVERLOADED OPERATORS (logical comparisons, return logical)
+!!      str1%str ................... [abcdefghij]
+!!      str2%str ................... [klmnopqrst]
+!!      : EQ LT GT LE GE NE
+!!      compare str1 to str1
+!!      :  T  F  F  T  T  F
+!!      compare str1 to str2
+!!      :  F  T  F  T  F  T
+!!      compare str2 to str1
+!!      :  F  F  T  F  T  T
+!!      =============================================================================
+!!
+!!   Expected output
+!!
+!!##AUTHOR
+!!    John S. Urban
+!!
+!!##LICENSE
+!!    Public Domain
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+module M_strings_oop
+!
+! Define an OOP (Object-Oriented Programming) interface for the M_strings module.
+!
+! Leveraging the existing procedural functions in module M_strings to do the calculations allows
+! this to be a definition of a derived type ( TYPE(STRING) ) and the
+! methods it supports and overloading of operators to support the new data type.
+!
+use M_strings, only : upper, lower                       ! case
+use M_strings, only : lenset, atleast, adjustc, compact, crop     ! whitespace
+use M_strings, only : reverse
+use M_strings, only : notabs, noesc, expand
+use M_strings, only : substitute, transliterate
+use M_strings, only : string_to_value, switch, v2s, s2v
+use M_strings, only : switch, split, matchw
+implicit none
+private
+integer,parameter,private :: dp=kind(0.0d0)
+public p
+!-----------------------------------------------------------------------------------------------------------------------------------
+   public string
+!-----------------------------------------------------------------------------------------------------------------------------------
+!DERIVED TYPE STRING
+!
+type string
+   ! COMPONENTS:
+   character(len=:),allocatable :: str
+contains
+   ! METHODS:
+   procedure  ::  adjustc        =>  oop_adjustc
+   procedure  ::  adjustl        =>  oop_adjustl
+   procedure  ::  adjustr        =>  oop_adjustr
+   procedure  ::  compact        =>  oop_compact
+   procedure  ::  crop           =>  oop_crop
+   procedure  ::  dble           =>  oop_dble
+   procedure  ::  expand         =>  oop_expand
+   procedure  ::  index          =>  oop_index
+   procedure  ::  init           =>  init_string
+   procedure  ::  int            =>  oop_int
+   procedure  ::  len            =>  oop_len
+   procedure  ::  len_trim       =>  oop_len_trim
+   procedure  ::  lenset         =>  oop_lenset
+   procedure  ::  atleast        =>  oop_atleast
+   procedure  ::  match          =>  oop_matchw
+   procedure  ::  lower          =>  oop_lower
+   procedure  ::  noesc          =>  oop_noesc
+   procedure  ::  notabs         =>  oop_notabs
+   procedure  ::  real           =>  oop_real
+   procedure  ::  reverse        =>  oop_reverse
+   procedure  ::  substitute     =>  oop_substitute
+   procedure  ::  transliterate  =>  oop_transliterate
+   procedure  ::  trim           =>  oop_trim
+   procedure  ::  upper          =>  oop_upper
+   procedure  ::  chars          =>  oop_switch
+!-!   procedure  ::  split          =>  oop_split
+   !DECLARATION OF OVERLOADED OPERATORS FOR TYPE(STRING)
+   procedure,private :: eq
+   generic           :: operator(==) => eq
+   procedure,private :: lt
+   generic           :: operator(<)  => lt
+   procedure,private :: gt
+   generic           :: operator(>)  => gt
+   procedure,private :: ge
+   generic           :: operator(>=) => ge
+   procedure,private :: le
+   generic           :: operator(<=) => le
+   procedure,private :: ne
+   generic           :: operator(/=) => ne
+
+   procedure,private :: string_plus_value
+   generic           :: operator(+) => string_plus_value   ! string + integer|real|doubleprecision|string|character
+   procedure,private :: string_minus_value
+   generic           :: operator(-) => string_minus_value  ! string - integer|real|doubleprecision|string|character
+   procedure,private :: string_multiply_value
+   generic           :: operator(*) => string_multiply_value  ! string * integer|real|doubleprecision
+   procedure,private :: string_append_value
+   generic           :: operator(//) => string_append_value
+
+!-!   procedure,private :: minus_string
+!-!   generic           :: operator(-)  => minus_string
+end type
+!===================================================================================================================================
+! User-defined constructors are created by defining a generic interface
+! with the same name as the derived type they're supposed to construct.
+interface string
+   module procedure construct_from_fill
+end interface string
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+contains
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+! this function is used internally in the module, but is also declared to be a constructor for creating TYPE(DATE_TYPE) structures
+!
+function construct_from_fill(chars,len)
+
+! ident_1="@(#)M_strings::construct_from_fill(3f): construct TYPE(STRING)"
+
+character(len=*),intent(in),optional :: chars
+integer,intent(in),optional          :: len
+type(string)                         :: construct_from_fill
+   if(present(chars))then
+      construct_from_fill%str=chars
+   else
+      construct_from_fill%str=''
+   endif
+   if(present(len))then
+      construct_from_fill%str=lenset(construct_from_fill%str,len)
+   endif
+end function construct_from_fill
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+! DEFINE THE METHODS FOR THE TYPE
+! These functions are privately used to define the methods that TYPE(STRING) will support
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_len(self) result (length)
+
+! ident_2="@(#)M_strings::oop_len(3f): length of string"
+
+class(string),intent(in)    :: self
+integer                     :: length
+   length=len(self%str)
+end function oop_len
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_len_trim(self) result (length)
+
+! ident_3="@(#)M_strings::oop_len_trim(3f): trimmed length of string"
+
+class(string),intent(in)    :: self
+integer                     :: length
+   length=len_trim(self%str)
+end function oop_len_trim
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_switch(self) result (array)
+
+! ident_4="@(#)M_strings::oop_switch(3f): convert string to array of single characters"
+
+class(string),intent(in)    :: self
+character(len=1)            :: array(len(self%str))
+   array=switch(self%str)
+end function oop_switch
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_index(self,substring,back) result (location)
+
+! ident_5="@(#)M_strings::oop_index(3f): find starting position of a substring in a string"
+
+class(string),intent(in)    :: self
+character(len=*),intent(in) :: substring
+integer                     :: location
+logical,optional,intent(in) :: back
+   if(present(back))then
+      location=index(self%str,substring,back)
+   else
+      location=index(self%str,substring)
+   endif
+end function oop_index
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_upper(self) result (string_out)
+
+! ident_6="@(#)M_strings::oop_upper(3f): convert string to uppercase"
+
+class(string),intent(in)     :: self
+type(string)                 :: string_out
+   string_out%str=upper(self%str)
+end function oop_upper
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_lower(self) result (string_out)
+
+! ident_7="@(#)M_strings::oop_lower(3f): convert string to miniscule"
+
+class(string),intent(in)     :: self
+type(string)                 :: string_out
+   string_out%str=lower(self%str)
+end function oop_lower
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_expand(self,escape_char) result (string_out)
+
+! ident_8="@(#)M_strings::oop_expand(3f): expand common escape sequences by calling expand(3f)"
+
+class(string),intent(in)      :: self
+character,intent(in),optional :: escape_char
+type(string)                  :: string_out
+   if(present(escape_char))then
+      string_out%str=expand(self%str,escape_char)
+   else
+      string_out%str=expand(self%str)
+   endif
+end function oop_expand
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_trim(self) result (string_out)
+
+! ident_9="@(#)M_strings::oop_trim(3f): trim trailing spaces"
+
+class(string),intent(in)     :: self
+type(string)                 :: string_out
+   string_out%str=trim(self%str)
+end function oop_trim
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_crop(self) result (string_out)
+
+! ident_10="@(#)M_strings::oop_crop(3f): crop leading and trailing spaces"
+
+class(string),intent(in)     :: self
+type(string)                 :: string_out
+   string_out%str=crop(self%str)
+end function oop_crop
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_reverse(self) result (string_out)
+
+! ident_11="@(#)M_strings::oop_reverse(3f): reverse string"
+
+class(string),intent(in)     :: self
+type(string)                 :: string_out
+   string_out%str=reverse(self%str)
+end function oop_reverse
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_adjustl(self) result (string_out)
+
+! ident_12="@(#)M_strings::oop_adjustl(3f): adjust string to left"
+
+class(string),intent(in)     :: self
+type(string)                 :: string_out
+   string_out%str=adjustl(self%str)
+end function oop_adjustl
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_adjustr(self) result (string_out)
+
+! ident_13="@(#)M_strings::oop_adjustr(3f): adjust string to right"
+
+class(string),intent(in)     :: self
+type(string)                 :: string_out
+   string_out%str=adjustr(self%str)
+end function oop_adjustr
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_adjustc(self,length) result (string_out)
+
+! ident_14="@(#)M_strings::oop_adjustc(3f): adjust string to center"
+
+class(string),intent(in)     :: self
+type(string)                 :: string_out
+integer,intent(in),optional  :: length
+   if(present(length))then
+      string_out%str=lenset(adjustc(self%str,length),length)
+   else
+      string_out%str=adjustc(self%str)
+   endif
+end function oop_adjustc
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_int(self) result (value)
+
+! ident_15="@(#)M_strings::oop_int(3f): string to integer"
+
+class(string),intent(in)     :: self
+integer                      :: value
+integer                      :: ierr
+   call string_to_value(self%str,value,ierr)
+end function oop_int
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_real(self) result (value)
+
+! ident_16="@(#)M_strings::oop_real(3f): string to real"
+
+class(string),intent(in)     :: self
+real                         :: value
+integer                      :: ierr
+   call string_to_value(self%str,value,ierr)
+end function oop_real
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_dble(self) result (value)
+
+! ident_17="@(#)M_strings::oop_dble(3f): string to double"
+
+class(string),intent(in)     :: self
+doubleprecision              :: value
+integer                      :: ierr
+   call string_to_value(self%str,value,ierr)
+end function oop_dble
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_compact(self,char) result (string_out)
+
+! ident_18="@(#)M_strings::oop_compact(3f): adjust string to center"
+
+class(string),intent(in)     :: self
+type(string)                 :: string_out
+character(len=*),optional    :: char
+   if(present(char))then
+      string_out%str=compact(self%str,char)
+   else
+      string_out%str=compact(self%str)
+   endif
+   string_out%str=trim(string_out%str)
+end function oop_compact
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_substitute(self,old,new) result (string_out)
+
+! ident_19="@(#)M_strings::oop_substitute(3f): change all occurrences of oldstring to newstring non-recursively"
+
+class(string),intent(in)     :: self
+type(string)                 :: string_out
+character(len=*),intent(in)  :: old
+character(len=*),intent(in)  :: new
+   string_out%str=self%str
+   call substitute(string_out%str,old,new)
+end function oop_substitute
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_transliterate(self,old,new) result (string_out)
+
+! ident_20="@(#)M_strings::oop_transliterate(3f): change all occurrences of oldstring to newstring non-recursively"
+
+class(string),intent(in)     :: self
+type(string)                 :: string_out
+character(len=*),intent(in)  :: old
+character(len=*),intent(in)  :: new
+   string_out%str=transliterate(self%str,old,new)
+end function oop_transliterate
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_atleast(self,length) result (string_out)
+
+! ident_21="@(#)M_strings::oop_atleast(3f): set string to at least specified length"
+
+class(string),intent(in)     :: self
+type(string)                 :: string_out
+integer,intent(in)           :: length
+   string_out%str=atleast(self%str,length)
+end function oop_atleast
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_lenset(self,length) result (string_out)
+
+! ident_22="@(#)M_strings::oop_lenset(3f): set string to specific length"
+
+class(string),intent(in)     :: self
+type(string)                 :: string_out
+integer,intent(in)           :: length
+   string_out%str=lenset(self%str,length)
+end function oop_lenset
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_matchw(self,pattern) result (answer)
+
+! ident_23="@(#)M_strings::oop_matchw(3f): test if wildcard pattern matches string"
+
+class(string),intent(in)     :: self
+character(len=*),intent(in)  :: pattern
+logical                      :: answer
+   answer=matchw(self%str,pattern)
+end function oop_matchw
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_notabs(self) result (string_out)
+
+! ident_24="@(#)M_strings::oop_notabs(3f): expand tab characters assuming tab stops every eight(8) characters"
+
+class(string),intent(in)     :: self
+type(string)                 :: string_out
+integer                      :: length
+   string_out%str=lenset('',8*len(self%str)) ! make long enough assuming all tab characters
+   call notabs(self%str,string_out%str,length)
+   string_out%str=trim(string_out%str)
+end function oop_notabs
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function oop_noesc(self) result (string_out)
+
+! ident_25="@(#)M_strings::oop_noesc(3f): replace non-printable characters with spaces"
+
+class(string),intent(in)     :: self
+type(string)                 :: string_out
+   string_out%str=noesc(self%str)
+end function oop_noesc
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+function p(self) result (string_out)
+
+! ident_26="@(#)M_strings::oop_p(3f): return CHARACTER string from TYPE(STRING)"
+
+class(string),intent(in)     :: self
+character(len=len(self%str)) :: string_out
+   string_out=self%str
+end function p
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+subroutine init_string(self)
+!
+! allow for TYPE(STRING) object to be initialized.
+!
+
+! ident_27="@(#)M_strings::init_dt(3f): initialize TYPE(STRING)"
+
+class(string)                        :: self
+   self%str=''
+end subroutine init_string
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+! FUNCTIONS FOR DEFINING OVERLOADED OPERATORS
+!===================================================================================================================================
+function string_plus_value(self,value) result (other)
+
+! ident_28="@(#)M_strings::string_plus_value(3f): add value to TYPE(STRING)"
+
+class(string),intent(in)      :: self
+type(string)                  :: other
+class(*),intent(in)           :: value
+!  This function is primarily intended to provide behaviors for the "+" operator for TYPE(STRING) values
+!  Notice that the value can be any of several types ( INTEGER,REAL,DOUBLEPRECISION,CHARACTER,TYPE(STRING) )
+   select type(value)
+   type is (integer);          other%str=v2s(value+s2v(self%str))  ! convert string%str to integer, add to value
+   type is (real);             other%str=v2s(value+s2v(self%str))  ! convert string%str to real, add to value
+   type is (doubleprecision);  other%str=v2s(value+s2v(self%str))  ! convert string%str to doubleprecision, add to value
+   type is (character(len=*)); other%str=self%str//' '//value      ! append space and CHARACTER to string %str
+   type is (string);           other%str=self%str//' '//value%str  ! append string %str values with space between
+   end select
+end function string_plus_value
+!===================================================================================================================================
+function string_minus_value(self,value) result (other)
+
+! ident_29="@(#)M_strings::string_minus_value(3f): subtract value from TYPE(STRING)"
+
+class(string),intent(in)      :: self
+type(string)                  :: other
+class(*),intent(in)           :: value
+!  This function is primarily intended to provide behaviors for the "-" operator for TYPE(STRING) values
+!  Notice that the value can be any of several types ( INTEGER,REAL,DOUBLEPRECISION,CHARACTER,TYPE(STRING) )
+   select type(value)
+   type is (integer);         other%str=v2s(value-s2v(self%str))
+   type is (real);            other%str=v2s(value-s2v(self%str))
+   type is (doubleprecision); other%str=v2s(value-s2v(self%str))
+   type is (character(len=*))
+      other%str=self%str
+      call substitute(other%str,value,'')
+   type is (string)
+      other%str=self%str
+      call substitute(other%str,value%str,'')
+   end select
+end function string_minus_value
+!===================================================================================================================================
+function string_append_value(self,value) result (other)
+
+! ident_30="@(#)M_strings::string_append_value(3f): append value to TYPE(STRING)"
+
+class(string),intent(in)      :: self
+type(string)                  :: other
+class(*),intent(in)           :: value
+!  This function is primarily intended to provide behaviors for the "//" operator for TYPE(STRING) values
+!  Notice that the value can be any of several types ( INTEGER,REAL,DOUBLEPRECISION,CHARACTER,TYPE(STRING) )
+   select type(value)
+   type is (integer);          other%str=self%str//v2s(value)
+   type is (real);             other%str=self%str//v2s(value)
+   type is (doubleprecision);  other%str=self%str//v2s(value)
+   type is (character(len=*)); other%str=self%str//value
+   type is (string);           other%str=self%str//value%str
+   end select
+end function string_append_value
+!===================================================================================================================================
+function string_multiply_value(self,value) result (other)
+
+! ident_31="@(#)M_strings::string_multiply_value(3f): multiply TYPE(STRING) value times"
+
+class(string),intent(in)      :: self
+type(string)                  :: other
+class(*),intent(in)           :: value
+!  This function is primarily intended to provide behaviors for the "//" operator for TYPE(STRING) values
+!  Notice that the value can be any of several types ( INTEGER,REAL,DOUBLEPRECISION )
+   select type(value)
+   type is (integer);          other%str=repeat(self%str,value)
+   type is (real);             other%str=repeat(self%str,nint(value))
+   type is (doubleprecision);  other%str=repeat(self%str,nint(value))
+   end select
+end function string_multiply_value
+!===================================================================================================================================
+logical function eq(self,other)
+
+! ident_32="@(#)M_strings::eq(3f): compare derived type string objects (eq,lt,gt,le,ge,ne)"
+
+   class(string),intent(in) :: self
+   type(string),intent(in)  :: other
+   eq= self%str .eq. other%str
+end function eq
+logical function lt(self,other)
+   class(string),intent(in) :: self
+   type(string),intent(in)  :: other
+   lt= self%str .lt. other%str
+end function lt
+logical function gt(self,other)
+   class(string),intent(in) :: self
+   type(string),intent(in)  :: other
+   gt= self%str .gt. other%str
+end function gt
+logical function le(self,other)
+   class(string),intent(in) :: self
+   type(string),intent(in)  :: other
+   le= self%str .le. other%str
+end function le
+logical function ge(self,other)
+   class(string),intent(in) :: self
+   type(string),intent(in)  :: other
+   ge= self%str .ge. other%str
+end function ge
+logical function ne(self,other)
+   class(string),intent(in) :: self
+   type(string),intent(in)  :: other
+   ne= self%str .ne. other%str
+end function ne
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+end module M_strings_oop
+!===================================================================================================================================
+!()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()()!
+!===================================================================================================================================
+ 
