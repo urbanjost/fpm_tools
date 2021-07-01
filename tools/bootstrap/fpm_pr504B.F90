@@ -3,6 +3,7 @@
     module fpm_global
     type modes
        logical :: verbose=.true.
+       character(len=10) :: color_mode='color'
     end type modes
     type(modes),public :: config
     end module fpm_global
@@ -11257,6 +11258,7 @@ module fpm_environment
     use,intrinsic :: iso_fortran_env, only : stdin=>input_unit,   &
                                            & stdout=>output_unit, &
                                            & stderr=>error_unit
+    use fpm_global, only : config
     use M_escape, only : esc
     implicit none
     private
@@ -11417,17 +11419,20 @@ contains
 
     end subroutine run
 
-    !> stop displaying optionally displaying potentially colored message
+    !> if verbose mode perform an ERROR STOP else perform a STOP
     subroutine fpm_stop(stopcode,stopmsg)
     implicit none
     integer,intent(in),optional          :: stopcode
     character(len=*),intent(in),optional :: stopmsg
     integer                              :: local_code
     integer                              :: ios
-       local_code=0
-       if(present(stopcode))local_code=stopcode
+       if(present(stopcode))then;local_code=stopcode;else;local_code=0;endif
        if(present(stopmsg)) write(stderr,'(a)',iostat=ios)esc('<r><bo>'//stopmsg)
-       stop local_code
+       if(config%verbose)then
+          error stop local_code
+       else
+          stop local_code
+       endif
     end subroutine fpm_stop
 
     !> get named environment variable value. It it is blank or
@@ -23368,6 +23373,7 @@ end module fpm_targets
 !>
 module fpm_backend
 
+use fpm_global, only : config
 use fpm_environment, only: run, get_os_type, OS_WINDOWS
 use fpm_filesystem, only: basename, dirname, join_path, exists, mkdir, unix_path
 use fpm_model, only: fpm_model_t
@@ -23423,7 +23429,7 @@ subroutine build_package(targets,model)
             ! Check if build already failed
             !$omp atomic read
             skip_current = build_failed
-
+            
             if (.not.skip_current) then
                 call build_target(model,queue(j)%ptr,stat(j))
             end if
@@ -23608,34 +23614,34 @@ subroutine build_target(model,target,stat)
     select case(target%target_type)
 
     case (FPM_TARGET_OBJECT)
-        write(*,('(a)')) esc('<E><bo><g> compile:')//' '//target%source%file_name
+        if(.not.config%verbose) write(*,('(a)')) esc('<B><bo><w>compile:')//' '//target%source%file_name
         call run(model%fortran_compiler//" -c " // target%source%file_name // target%compile_flags &
-              // " -o " // target%output_file, echo=.false., exitstat=stat)
+              // " -o " // target%output_file, echo=config%verbose, exitstat=stat)
 
     case (FPM_TARGET_C_OBJECT)
-        write(*,('(a)')) esc('<E><bo><g> compile:')//' '//target%source%file_name
+        if(.not.config%verbose) write(*,('(a)')) esc('<B><bo><w>compile:')//' '//target%source%file_name
         call run(model%c_compiler//" -c " // target%source%file_name // target%compile_flags &
-                // " -o " // target%output_file, echo=.false., exitstat=stat)
+                // " -o " // target%output_file, echo=config%verbose, exitstat=stat)
 
     case (FPM_TARGET_EXECUTABLE)
 
-        write(*,('(a)')) esc('<E><bo><c>    load:')//' '//target%output_file
+        if(.not.config%verbose) write(*,('(a)')) esc('<W><bo><b>   load:')//' '//target%output_file
         call run(model%fortran_compiler// " " // target%compile_flags &
-              //" "//target%link_flags// " -o " // target%output_file, echo=.false., exitstat=stat)
+              //" "//target%link_flags// " -o " // target%output_file, echo=config%verbose, exitstat=stat)
 
     case (FPM_TARGET_ARCHIVE)
 
         select case (get_os_type())
         case (OS_WINDOWS)
             call write_response_file(target%output_file//".resp" ,target%link_objects)
-            write(*,('(a)')) esc('<E><bo><y> archive:')//' '//target%output_file
+            if(.not.config%verbose) write(*,('(a)')) esc('<W><bo><b>archive:')//' '//target%output_file
             call run(model%archiver // target%output_file // " @" // target%output_file//".resp", &
-                     echo=.false., exitstat=stat)
+                     echo=config%verbose, exitstat=stat)
 
         case default
-            write(*,('(a)')) esc('<E><bo><y> archive:')//' '//target%output_file
+            if(.not.config%verbose) write(*,('(a)')) esc('<W><bo><b>archive:')//' '//target%output_file
             call run(model%archiver // target%output_file // " " // string_cat(target%link_objects," "), &
-                     echo=.false., exitstat=stat)
+                     echo=config%verbose, exitstat=stat)
 
         end select
 
@@ -23693,6 +23699,7 @@ end module fpm_backend
 !> ``fpm-help`` and ``fpm --list`` help pages below to make sure the help output
 !> is complete and consistent as well.
 module fpm_command_line
+use fpm_global,       only : config
 use fpm_environment,  only : get_os_type, get_env, &
                              OS_UNKNOWN, OS_LINUX, OS_MACOS, OS_WINDOWS, &
                              OS_CYGWIN, OS_SOLARIS, OS_FREEBSD, OS_OPENBSD
@@ -23720,7 +23727,6 @@ public :: fpm_cmd_settings, &
 
 type, abstract :: fpm_cmd_settings
     character(len=:), allocatable :: working_dir
-    logical :: verbose
 end type
 
 integer,parameter :: ibug=4096
@@ -23794,24 +23800,23 @@ contains
         integer                       :: widest
         type(fpm_install_settings), allocatable :: install_settings
         character(len=:), allocatable :: common_args, working_dir
-        character(len=10)             :: color_mode
 
         ! conventional GNU keywords for color are "auto", "never", "always" so map to M_escape
-        color_mode=get_env('FPM_COLOR','auto')
-        select case(color_mode)
-        case('color','always'); color_mode='color'
-        case('plain','never');  color_mode='plain'
+        config%color_mode=get_env('FPM_COLOR','auto')
+        select case(config%color_mode)
+        case('color','always'); config%color_mode='color'
+        case('plain','never');  config%color_mode='plain'
         case('auto')
            if(isatty(stdout))then
-              color_mode='color'
+              config%color_mode='color'
            else
-              color_mode='plain'
+              config%color_mode='plain'
            endif
         case default
-           write(stdout,'(*(g0,1x))')'warning: FPM_COLOR should be one of "auto","never","always" but is ',color_mode
-           color_mode='plain'
+           write(stdout,'(*(g0,1x))')'warning: FPM_COLOR should be one of "auto","never","always" but is ',config%color_mode
+           config%color_mode='plain'
         end select
-        call esc_mode(color_mode) ! color|plain|raw
+        call esc_mode(config%color_mode) ! color|plain|raw
 
         call set_help()
         ! text for --version switch,
@@ -23857,6 +23862,8 @@ contains
             & --verbose:V F&
             & --',help_run,version_text)
 
+            config%verbose=lget('verbose')
+
             call check_build_vals()
 
             if( size(unnamed) .gt. 1 )then
@@ -23894,7 +23901,6 @@ contains
             & example=lget('example'), &
             & list=lget('list'),&
             & name=names,&
-            & verbose=lget('verbose'), &
             & runner=val_runner)
 
         case('build')
@@ -23907,6 +23913,8 @@ contains
             & --verbose:V F&
             & --',help_build,version_text)
 
+            config%verbose=lget('verbose')
+
             call check_build_vals()
 
             allocate( fpm_build_settings :: cmd_settings )
@@ -23916,7 +23924,6 @@ contains
             & compiler=val_compiler, &
             & flag=val_flag, &
             & list=lget('list'),&
-            & verbose=lget('verbose'), &
             & show_model=lget('show-model') )
 
         case('new')
@@ -23931,6 +23938,8 @@ contains
             & --bare F &
             & --verbose:V F',&
             & help_new, version_text)
+
+            config%verbose=lget('verbose')
 
             select case(size(unnamed))
             case(1)
@@ -23972,7 +23981,6 @@ contains
                 cmd_settings=fpm_new_settings(&
                  & backfill=lget('backfill'),               &
                  & name=name,                               &
-                 & verbose=lget('verbose'),                 &
                  & with_executable=lget('app'),             &
                  & with_lib=any([lget('lib'),lget('src')]), &
                  & with_test=lget('test'),                  &
@@ -23981,7 +23989,6 @@ contains
                 cmd_settings=fpm_new_settings(&
                  & backfill=lget('backfill') ,           &
                  & name=name,                            &
-                 & verbose=lget('verbose'),              &
                  & with_executable=.true.,               &
                  & with_lib=.true.,                      &
                  & with_test=.true.,                     &
@@ -23994,6 +24001,8 @@ contains
             call set_args(common_args // '&
             & --verbose:V F &
             & ',help_help,version_text)
+
+            config%verbose=lget('verbose')
 
             if(size(unnamed).lt.2)then
                 if(unnamed(1).eq.'help')then
@@ -24047,6 +24056,8 @@ contains
                 & --libdir "lib" --bindir "bin" --includedir "include"', &
                 help_install, version_text)
 
+            config%verbose=lget('verbose')
+
             call check_build_vals()
 
             allocate(install_settings)
@@ -24056,7 +24067,6 @@ contains
                 profile=val_profile,&
                 compiler=val_compiler, &
                 flag=val_flag, &
-                verbose=lget('verbose'), &
                 no_rebuild=lget('no-rebuild') )
             call get_char_arg(install_settings%prefix, 'prefix')
             call get_char_arg(install_settings%libdir, 'libdir')
@@ -24069,6 +24079,8 @@ contains
             & --list F&
             & --verbose:V F&
             &', help_list, version_text)
+
+            config%verbose=lget('verbose')
 
             call printhelp(help_list_nodash)
             if(lget('list'))then
@@ -24084,6 +24096,8 @@ contains
             & --flag:: " "&
             & --verbose:V F&
             & --',help_test,version_text)
+
+            config%verbose=lget('verbose')
 
             call check_build_vals()
 
@@ -24116,12 +24130,13 @@ contains
             & example=.false., &
             & list=lget('list'), &
             & name=names, &
-            & verbose=lget('verbose'), &
             & runner=val_runner )
 
         case('update')
             call set_args(common_args // ' --fetch-only F --verbose:V F --clean F', &
                 help_update, version_text)
+
+            config%verbose=lget('verbose')
 
             if( size(unnamed) .gt. 1 )then
                 names=unnamed(2:)
@@ -24132,7 +24147,6 @@ contains
             allocate(fpm_update_settings :: cmd_settings)
             cmd_settings=fpm_update_settings(name=names, &
                 fetch_only=lget('fetch-only'), &
-                verbose=lget('verbose'), &
                 clean=lget('clean'))
 
         case default
@@ -24144,6 +24158,8 @@ contains
                 & --list F&
                 & --verbose:V F&
                 &', help_fpm, version_text)
+
+                config%verbose=lget('verbose')
 
                 ! Note: will not get here if --version or --usage or --help
                 ! is present on commandline
@@ -24196,28 +24212,39 @@ contains
     subroutine printhelp(lines)
     character(len=:),intent(in),allocatable :: lines(:)
     character(len=:),allocatable :: line
-    integer :: i,ii
-        if(allocated(lines))then
-           ii=size(lines)
-           if(ii .gt. 0 .and. len(lines).gt. 0) then
-               do i=1,ii
-                  ! find length as plain text and pad line into 80-column black line with white text
-                  line=trim(lines(i))
-                  call esc_mode('plain')
-                  if(line.eq.'')then
-                     line='<E><w>'//repeat(' ',80)
-                  else
-                     if(verify(line,'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ -').eq.0.and.line(1:1).ne.' ')then
-                        line='<E><g><bo>'//line//repeat(' ',max(0,80-len(esc(line))))
+    integer :: i,ii,iii
+        if(config%color_mode.eq.'color')then
+           if(allocated(lines))then
+              ii=size(lines)
+              if(ii .gt. 0 .and. len(lines).gt. 0) then
+                  do i=1,ii
+                     ! find length as plain text and pad line into 80-column black line with white text
+                     line=trim(lines(i))
+                     call esc_mode('plain')
+                     if(line.eq.'')then
+                        line='<E><w><bo>'//repeat(' ',80)
                      else
-                        line='<E><w>'//line//repeat(' ',max(0,80-len(esc(line))))
+                        if(verify(line,'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ -').eq.0.and.line(1:1).ne.' ')then
+                           line='<E><g>'//line//repeat(' ',max(0,80-len(esc(line))))
+			else
+                           line='<E><w>'//line//repeat(' ',max(0,80-len(esc(line))))
+			endif
                      endif
-                  endif
-                  call esc_mode(color_mode)
-                  write(stdout,'(g0)')esc(line)
-               enddo
-           else
-               write(stdout,'(a)')esc('<m><bo>warning:</m> *printhelp* output requested is empty')
+                     call esc_mode(config%color_mode)
+                     write(stdout,'(g0)')esc(line)
+                  enddo
+              else
+                  write(stdout,'(a)')esc('<m><bo>warning:</m> *printhelp* output requested is empty')
+              endif
+           endif
+        else  ! monochrome
+           if(allocated(lines))then
+              ii=size(lines)
+              if(ii .gt. 0 .and. len(lines).gt. 0) then
+                  write(stdout,'(a)')(esc(trim(lines(i))),i=1,ii)
+              else
+                  write(stdout,'(a)')esc('<m><bo>warning:</m> *printhelp* output requested is empty')
+              endif
            endif
         endif
     end subroutine printhelp
@@ -24268,9 +24295,6 @@ contains
    ' <bo>Enter "<r><un>fpm</un></r> <g>--list</g><w></bo>" for a brief list of subcommand options. Enter', &
    ' "<bo><r><un>fpm</un></r> <g>--help</g></bo><w>" or &
    &"<bo><r><un>fpm</un> <un>SUBCOMMAND</un></r> <g>--help</g><w></bo>" for detailed descriptions.', &
-   '                                                                        ', &
-   ' <bo>Note:</bo> color mode is controlled by the environment variable FPM_COLOR. The', &
-   '       set of allowable values is {<g><bo>always,never,auto</bo></g><w>}. The default is "<g><bo>auto</bo></g><w>". ', &
    ' ']
    help_list_dash = [character(len=90) :: &
    !'<clear>', &
@@ -24463,11 +24487,6 @@ contains
     '   Note --flag would have to be on one line as response files do not   ', &
     '   (currently) allow for continued lines or multiple specifications of ', &
     '   the same option.                                                    ', &
-    '                                                                       ', &
-    'COLOR                                                                  ', &
-    '   Message color mode is controlled by the environment variable        ', &
-    '   FPM_COLOR. The allowable values are "always","never", or "auto".    ', &
-    '   The default is "auto".                                              ', &
     '                                                                       ', &
     'EXAMPLES                                                               ', &
     '   sample commands:                                                    ', &
@@ -25140,6 +25159,7 @@ end module fpm_sources
 !>>>>> ././src/fpm.f90
 module fpm
 use M_escape, only : esc
+use fpm_global, only : config
 use fpm_strings, only: string_t, operator(.in.), glob, join, string_cat
 use fpm_backend, only: build_package
 use fpm_command_line, only: fpm_build_settings, fpm_new_settings, &
@@ -25326,12 +25346,12 @@ subroutine build_model(model, settings, package, error)
     end do
     if (allocated(error)) return
 
-    if (settings%verbose) then
-        write(*,'(*(g0,1x))')esc('<y><bo><E>  info:<g>          BUILD_NAME:'),settings%build_name
-        write(*,'(*(g0,1x))')esc('<y><bo><E>  info:<g>            COMPILER:'),settings%compiler
-        write(*,'(*(g0,1x))')esc('<y><bo><E>  info:<g>          C COMPILER:'),model%c_compiler
-        write(*,'(*(g0,1x))')esc('<y><bo><E>  info:<g>    COMPILER OPTIONS:'), model%fortran_compile_flags
-        write(*,'(*(g0,1x))')esc('<y><bo><E>  info:<g> INCLUDE DIRECTORIES:'),'[', string_cat(model%include_dirs,','),']'
+    if (config%verbose) then
+        write(*,*)esc('<y><bo><E>  info:'),'          BUILD_NAME: ',settings%build_name
+        write(*,*)esc('<y><bo><E>  info:'),'            COMPILER: ',settings%compiler
+        write(*,*)esc('<y><bo><E>  info:'),'          C COMPILER: ',model%c_compiler
+        write(*,*)esc('<y><bo><E>  info:'),'    COMPILER OPTIONS: ', model%fortran_compile_flags
+        write(*,*)esc('<y><bo><E>  info:'),' INCLUDE DIRECTORIES: [', string_cat(model%include_dirs,','),']'
      end if
 
     ! Check for duplicate modules
@@ -25538,7 +25558,7 @@ subroutine cmd_run(settings,test)
               end do
               write(stderr,'(A)') 'not found.'
               write(stderr,*)
-           else if(settings%verbose)then
+           else if(config%verbose)then
               write(stderr,'(A)',advance="yes")esc('<y><bo>  info:')//' when more than one executable is available'
               write(stderr,'(A)',advance="yes")'       program names must be specified.'
            endif
@@ -25565,9 +25585,9 @@ subroutine cmd_run(settings,test)
             if (exists(executables(i)%s)) then
                 if(settings%runner .ne. ' ')then
                     call run(settings%runner//' '//executables(i)%s//" "//settings%args, &
-                             echo=settings%verbose, exitstat=stat(i))
+                             echo=config%verbose, exitstat=stat(i))
                 else
-                    call run(executables(i)%s//" "//settings%args,echo=settings%verbose, &
+                    call run(executables(i)%s//" "//settings%args,echo=config%verbose, &
                              exitstat=stat(i))
                 endif
             else
@@ -25690,6 +25710,7 @@ module fpm_cmd_new
 !> be the first go-to for a CLI utility).
 
 use M_escape, only : esc
+use fpm_global, only : config
 use fpm_command_line, only : fpm_new_settings
 use fpm_environment, only : run, OS_LINUX, OS_MACOS, OS_WINDOWS
 use fpm_filesystem, only : join_path, exists, basename, mkdir, is_dir, to_fortran_name
@@ -26245,7 +26266,7 @@ character(len=*),intent(in) :: filename
     ! ...
     call new_package(package, table, error=error)
     if (allocated(error)) stop 3
-    if(settings%verbose)then
+    if(config%verbose)then
        call table%accept(ser)
     endif
     ser%unit=lun
@@ -26274,7 +26295,7 @@ joined_string = join(input,right=nl)
 if (allocated(table)) deallocate(table)
 call toml_parse(table, joined_string)
 if (allocated(table)) then
-   if(settings%verbose)then
+   if(config%verbose)then
       ! If the TOML file is successfully parsed the table will be allocated and
       ! can be written to the standard output by passing the `toml_serializer`
       ! as visitor to the table.
@@ -26292,6 +26313,7 @@ end module fpm_cmd_new
  
 !>>>>> ././src/fpm/cmd/update.f90
 module fpm_cmd_update
+  use fpm_global, only : config
   use fpm_environment, only : fpm_stop
   use fpm_command_line, only : fpm_update_settings
   use fpm_dependency, only : dependency_tree_t, new_dependency_tree
@@ -26328,7 +26350,7 @@ contains
     end if
 
     call new_dependency_tree(deps, cache=cache, &
-      verbosity=merge(2, 1, settings%verbose))
+      verbosity=merge(2, 1, config%verbose))
 
     call deps%add(package, error)
     call handle_error(error)
@@ -26364,6 +26386,7 @@ end module fpm_cmd_update
 !>>>>> ././src/fpm/cmd/install.f90
 module fpm_cmd_install
   use, intrinsic :: iso_fortran_env, only : output_unit
+  use fpm_global, only : config
   use fpm, only : build_model
   use fpm_environment, only : fpm_stop
   use fpm_backend, only : build_package
@@ -26423,7 +26446,7 @@ contains
     call new_installer(installer, prefix=settings%prefix, &
       bindir=settings%bindir, libdir=settings%libdir, &
       includedir=settings%includedir, &
-      verbosity=merge(2, 1, settings%verbose))
+      verbosity=merge(2, 1, config%verbose))
 
     if (allocated(package%library) .and. package%install%library) then
       dir = join_path(model%output_directory, model%package_name)
@@ -26538,8 +26561,7 @@ contains
   end subroutine handle_error
 
 end module fpm_cmd_install
-
-!>>>>> src/fpm_os.f90
+ 
 module fpm_os
     use, intrinsic :: iso_c_binding, only : c_char, c_int, c_null_char, c_ptr, c_associated
     use fpm_error, only : error_t, fatal_error
@@ -26645,7 +26667,6 @@ contains
     end subroutine c_f_character
 
 end module fpm_os
- 
  
 !>>>>> app/main.f90
 program main
