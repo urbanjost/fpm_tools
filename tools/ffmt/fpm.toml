@@ -1,9 +1,14 @@
+# TOML file for fpm as described at https://github.com/fortran-lang/fpm/blob/master/manifest-reference.md
 name = "ffmt"
 version = "0.1.0"
 license = "MIT"
 author = "John S. Urban"
 maintainer = "urbanjost@comcast.net"
 copyright = "Copyright 2021, John S. Urban"
+description = "format Format comments "
+categories = ["strings"]
+keywords = ["fortran", "strings","format","paragraph"]
+homepage = "https://github.com/urbanjost/fpm-tools.git"
 
 [[executable]]
    name="ffmt"
