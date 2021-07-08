@@ -9,7 +9,6 @@ integer,parameter             :: dp=kind(0.0d0)         ! calculator returns dou
 integer,parameter             :: iclen_calc=256
 character(len=iclen_calc)     :: line0                  ! input line
 character(len=iclen_calc)     :: linet                  ! input line trimmed of leading spaces
-integer                       :: ierr
 integer                       :: ii                     ! location of end of verb on input lines
 integer                       :: iin=5                  ! I/O unit to read input from
 integer                       :: ios                    ! status returned by last READ
@@ -64,8 +63,13 @@ character(len=:),allocatable  :: version_text(:)
           call execute_command_line( 'fpm '//linet )            ! call fpm
       case('cd')
           call chdir(linet(ii+1:))                              ! gfortran fortran extension
+      case('?')                                                 ! display help
+              write(*,'(a)')help_text
       case('help')                                              ! display help
           call execute_command_line( 'fpm '//linet//'|more' )   ! call fpm
+      case('man')                                               ! display help
+          write(*,*)'env MANPATH=./man:"$MANPATH" '//linet
+          call execute_command_line( 'env MANPATH="./man:$MANPATH" man '//linet )   ! call man with possible man directory
       case('version')
          call execute_command_line('fpm --version')             ! see if shell will execute it
       case('read')                                              ! read from alternate input file
@@ -116,18 +120,21 @@ help_text=[ CHARACTER(LEN=128) :: &
 '    Could add if/else/elseif/endif logic, calculator, basic graphics,           ',&
 '    matlab88, ...                                                               ',&
 'OPTIONS                                                                         ',&
-'   --help      display this help and exit                                       ',&
-'   --version   output version information and exit                              ',&
-'   --read FILENAME                                                              ',&
-'   --replay                                                                     ',&
+'   --read FILENAME  read initial commands from specified file                   ',&
+'   --replay         turn on journal file                                        ',&
+'   --help           display this help and exit                                  ',&
+'   --version        output version information and exit                         ',&
 'USAGE                                                                           ',&
 ' At the command prompt the following example commands may be used:              ',&
 '  #----------------------------------------------------------------------------#',&
 '  | command                     || description                                 |',&
 '  #----------------------------------------------------------------------------#',&
+'  | run, build, test, help      || run "fpm CMD ..."                           |',&
+'  | install, new, list, update  ||                                             |',&
 '  | r                           || enter history editor; ? will produce help   |',&
 '  | read file [-q]              || read from another input file                |',&
-'  | help                        || display this information                    |',&
+'  | ?                           || display this information                    |',&
+'  | cd                          || change directory                            |',&
 '  | version                     || fpm -version                                |',&
 '  | quit|.                      || exit program                                |',&
 '  | anything_else               | execute as system command                    |',&

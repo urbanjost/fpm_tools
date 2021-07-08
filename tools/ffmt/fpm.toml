@@ -1,0 +1,15 @@
+name = "ffmt"
+version = "0.1.0"
+license = "MIT"
+author = "John S. Urban"
+maintainer = "urbanjost@comcast.net"
+copyright = "Copyright 2021, John S. Urban"
+
+[[executable]]
+   name="ffmt"
+   source-dir="app"
+   main="ffmt.f90"
+   [executable.dependencies]
+   M_kracken      = { git = "https://github.com/urbanjost/M_kracken.git" }
+   M_io           = { git = "https://github.com/urbanjost/M_io.git" }
+   M_strings      = { git = "https://github.com/urbanjost/M_strings.git" }
