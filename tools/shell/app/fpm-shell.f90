@@ -59,8 +59,10 @@ character(len=:),allocatable  :: version_text(:)
          call journal('*fpm-shell*: that''s all folks ...')
          stop
       case(' ')                                                 ! ignore blank lines
-      case('run','install','test','build','new','list','update')
+      case('run','install','test','build','new','list','update','search')
           call execute_command_line( 'fpm '//linet )            ! call fpm
+      case('fman')
+          call execute_command_line( 'fpm '//linet(2:)//' --color|less -r' ) ! call fpm-man
       case('cd')
           call chdir(linet(ii+1:))                              ! gfortran fortran extension
       case('?')                                                 ! display help
@@ -131,6 +133,7 @@ help_text=[ CHARACTER(LEN=128) :: &
 '  #----------------------------------------------------------------------------#',&
 '  | run, build, test, help      || run "fpm CMD ..."                           |',&
 '  | install, new, list, update  ||                                             |',&
+'  | search, fman                || plugins which must be installed             |',&
 '  | r                           || enter history editor; ? will produce help   |',&
 '  | read file [-q]              || read from another input file                |',&
 '  | ?                           || display this information                    |',&

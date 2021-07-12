@@ -17,7 +17,7 @@
 !!### Types
 !! - **TYPE(STRING_T)** define a type to contain strings of variable length
 !!### Type Conversions
-!! - [[F_STRING]]  return Fortran **CHARACTER** variable when given a C-like array of 
+!! - [[F_STRING]]  return Fortran **CHARACTER** variable when given a C-like array of
 !!                 single characters terminated with a C_NULL_CHAR **CHARACTER**
 !! - [[STR]]  Converts **INTEGER** or** LOGICAL** to **CHARACTER** string
 !!### Case
@@ -25,14 +25,18 @@
 !!### Parsing and joining
 !! - [[SPLIT]]  parse string on delimiter characters and store tokens into an allocatable array
 !! - [[STRING_CAT]]  Concatenate an array of **type(string_t)** into a single **CHARACTER** variable
-!! - [[JOIN]]  append an array of **CHARACTER** variables into a single **CHARACTER** variable 
+!! - [[JOIN]]  append an array of **CHARACTER** variables into a single **CHARACTER** variable
 !!### Testing
 !! - [[STR_ENDS_WITH]]  test if a **CHARACTER** string or array ends with a specified suffix
 !! - [[STRING_ARRAY_CONTAINS]]  Check if array of **TYPE(STRING_T)** matches a particular **CHARACTER** string
 !! - **OPERATOR(.IN.)**  Check if array of **TYPE(STRING_T)** matches a particular **CHARACTER** string
 !! - [[GLOB]]  function compares text strings, one of which can have wildcards ('*' or '?').
-!!### Miscellaneous
+!!### Whitespace
+!! - [[IS_FORTRAN_NAME]]  determine whether a string is an acceptable Fortran entity name
+!! - [[TO_FORTRAN_NAME]]  replace allowed special but unusuable characters in names with underscore
 !! - [[LEN_TRIM]]  Determine total trimmed length of **STRING_T** array
+!! - [[NOTABS]]  Expand tab characters assuming a tab space every eight characters
+!!### Miscellaneous
 !! - [[FNV_1A]]  Hash a **CHARACTER(*)** string of default kind or a **TYPE(STRING_T)** array
 !! - [[REPLACE]]  Returns string with characters in charset replaced with target_char.
 !! - [[RESIZE]]  increase the size of a **TYPE(STRING_T)** array by N elements
@@ -40,12 +44,16 @@
 
 module fpm_strings
 use iso_fortran_env, only: int64
+use,intrinsic :: iso_fortran_env, only : stdin=>input_unit,   &
+                                       & stdout=>output_unit, &
+                                       & stderr=>error_unit
 implicit none
 
 private
 public :: f_string, lower, split, str_ends_with, string_t
+public :: to_fortran_name, is_fortran_name
 public :: string_array_contains, string_cat, len_trim, operator(.in.), fnv_1a
-public :: replace, resize, str, join, glob
+public :: replace, resize, str, join, glob, notabs
 
 type string_t
     character(len=:), allocatable :: s
@@ -443,12 +451,12 @@ end subroutine resize_string
 !>AUTHOR: John S. Urban
 !!LICENSE: Public Domain
 !>
-!!##NAME
-!!    join(3f) - [M_strings:EDITING] append CHARACTER variable array into
+!!### NAME
+!!    join(3f) - [fpm_strings:EDITING] append CHARACTER variable array into
 !!    a single CHARACTER variable with specified separator
 !!    (LICENSE:PD)
 !!
-!!##SYNOPSIS
+!!### SYNOPSIS
 !!
 !!    pure function join(str,sep,trm,left,right,start,end) result (string)
 !!
@@ -461,13 +469,13 @@ end subroutine resize_string
 !!     character(len=*),intent(in),optional :: end
 !!     character(len=:),allocatable         :: string
 !!
-!!##DESCRIPTION
+!!### DESCRIPTION
 !!   JOIN(3f) appends the elements of a CHARACTER array into a single
 !!   CHARACTER variable, with elements 1 to N joined from left to right.
 !!   By default each element is trimmed of trailing spaces and the
 !!   default separator is a null string.
 !!
-!!##OPTIONS
+!!### OPTIONS
 !!      STR(:)  array of CHARACTER variables to be joined
 !!      SEP     separator string to place between each variable. defaults
 !!              to a null string.
@@ -478,17 +486,17 @@ end subroutine resize_string
 !!      TRM     option to trim each element of STR of trailing
 !!              spaces. Defaults to .TRUE.
 !!
-!!##RESULT
+!!### RESULT
 !!      STRING  CHARACTER variable composed of all of the elements of STR()
 !!              appended together with the optional separator SEP placed
 !!              between the elements.
 !!
-!!##EXAMPLE
+!!### EXAMPLE
 !!
 !!  Sample program:
 !!
 !!   program demo_join
-!!   use M_strings, only: join
+!!   use fpm_strings, only: join
 !!   implicit none
 !!   character(len=:),allocatable  :: s(:)
 !!   character(len=:),allocatable  :: out
@@ -518,7 +526,7 @@ end subroutine resize_string
 !!   >>United>> we>> stand,>> divided>> we fall.
 pure function join(str,sep,trm,left,right,start,end) result (string)
 
-! @(#)M_strings::join(3f): merge string array into a single CHARACTER value adding specified separators, caps, prefix and suffix
+! @(#)fpm_strings::join(3f): merge string array into a single CHARACTER value adding specified separators, caps, prefix and suffix
 
 character(len=*),intent(in)          :: str(:)
 character(len=*),intent(in),optional :: sep, right, left, start, end
@@ -552,21 +560,21 @@ integer                              :: i
    if(present(end))string=string//end
 end function join
 
-!>##AUTHOR John S. Urban
-!!##LICENSE Public Domain
-!!## NAME
+!>### AUTHOR John S. Urban
+!!### LICENSE Public Domain
+!!### NAME
 !!    glob(3f) - [fpm_strings:COMPARE] compare given string for match to
 !!    pattern which may contain wildcard characters
 !!    (LICENSE:PD)
 !!
-!!## SYNOPSIS
+!!### SYNOPSIS
 !!
 !!    logical function glob(string, pattern )
 !!
 !!     character(len=*),intent(in) :: string
 !!     character(len=*),intent(in) :: pattern
 !!
-!!## DESCRIPTION
+!!### DESCRIPTION
 !!   glob(3f) compares given STRING for match to PATTERN which may
 !!   contain wildcard characters.
 !!
@@ -574,7 +582,7 @@ end function join
 !!   by PATTERN. Trailing whitespace is significant, so trim the input
 !!   string to have trailing whitespace ignored.
 !!
-!!## OPTIONS
+!!### OPTIONS
 !!    string   the input string to test to see if it contains the pattern.
 !!    pattern  the following simple globbing options are available
 !!
@@ -586,7 +594,7 @@ end function join
 !!             o There is no escape character, so matching strings with
 !!               literal question mark and asterisk is problematic.
 !!
-!!## EXAMPLES
+!!### EXAMPLES
 !!
 !!   Example program
 !!
@@ -779,7 +787,7 @@ end function join
 !!   Expected output
 !!
 !!
-!!## REFERENCE
+!!### REFERENCE
 !!   The article "Matching Wildcards: An Empirical Way to Tame an Algorithm"
 !!   in Dr Dobb's Journal, By Kirk J. Krauss, October 07, 2014
 !!
@@ -932,138 +940,145 @@ else
 end if
 end function
 
+!>
+!!### NAME
+!!   notabs(3f) - [fpm_strings:NONALPHA] expand tab characters
+!!   (LICENSE:PD)
+!!
+!!### SYNOPSIS
+!!
+!!    subroutine notabs(INSTR,OUTSTR,ILEN)
+!!
+!!     character(len=*),intent=(in)  :: INSTR
+!!     character(len=*),intent=(out) :: OUTSTR
+!!     integer,intent=(out)          :: ILEN
+!!
+!!### DESCRIPTION
+!!   NOTABS() converts tabs in INSTR to spaces in OUTSTR while maintaining
+!!   columns. It assumes a tab is set every 8 characters. Trailing spaces
+!!   are removed.
+!!
+!!   In addition, trailing carriage returns and line feeds are removed
+!!   (they are usually a problem created by going to and from MSWindows).
+!!
+!!   What are some reasons for removing tab characters from an input line?
+!!   Some Fortran compilers have problems with tabs, as tabs are not
+!!   part of the Fortran character set. Some editors and printers will
+!!   have problems with tabs. It is often useful to expand tabs in input
+!!   files to simplify further processing such as tokenizing an input line.
+!!
+!!### OPTIONS
+!!     instr     Input line to remove tabs from
+!!
+!!### RESULTS
+!!     outstr    Output string with tabs expanded. Assumed to be of sufficient
+!!               length
+!!     ilen      Significant length of returned string
+!!
+!!### EXAMPLES
+!!
+!!   Sample program:
+!!
+!!    program demo_notabs
+!!
+!!    !  test filter to remove tabs and trailing white space from input
+!!    !  on files up to 1024 characters wide
+!!    use fpm_strings, only : notabs
+!!    character(len=1024) :: in,out
+!!    integer             :: ios,iout
+!!       do
+!!          read(*,'(A)',iostat=ios)in
+!!          if(ios /= 0) exit
+!!          call notabs(in,out,iout)
+!!          write(*,'(a)')out(:iout)
+!!       enddo
+!!    end program demo_notabs
+!!
+!!### SEE ALSO
+!!   GNU/Unix commands expand(1) and unexpand(1)
+!!
+!!### AUTHOR
+!!   John S. Urban
+!!
+!!### LICENSE
+!!   Public Domain
+elemental impure subroutine notabs(instr,outstr,ilen)
+
+! ident_31="@(#)fpm_strings::notabs(3f): convert tabs to spaces while maintaining columns, remove CRLF chars"
+
+character(len=*),intent(in)   :: instr        ! input line to scan for tab characters
+character(len=*),intent(out)  :: outstr       ! tab-expanded version of INSTR produced
+integer,intent(out)           :: ilen         ! column position of last character put into output string
+                                              ! that is, ILEN holds the position of the last non-blank character in OUTSTR
+!===================================================================================================================================
+integer,parameter             :: tabsize=8    ! assume a tab stop is set every 8th column
+integer                       :: ipos         ! position in OUTSTR to put next character of INSTR
+integer                       :: lenin        ! length of input string trimmed of trailing spaces
+integer                       :: lenout       ! number of characters output string can hold
+integer                       :: istep        ! counter that advances thru input string INSTR one character at a time
+character(len=1)              :: c            ! character in input line being processed
+integer                       :: iade         ! ADE (ASCII Decimal Equivalent) of character being tested
+!===================================================================================================================================
+   ipos=1                                     ! where to put next character in output string OUTSTR
+   lenin=len_trim(instr( 1:len(instr) ))      ! length of INSTR trimmed of trailing spaces
+   lenout=len(outstr)                         ! number of characters output string OUTSTR can hold
+   outstr=" "                                 ! this SHOULD blank-fill string, a buggy machine required a loop to set all characters
+!===================================================================================================================================
+      SCAN_LINE: do istep=1,lenin             ! look through input string one character at a time
+         c=instr(istep:istep)                 ! get next character
+         iade=ichar(c)                        ! get ADE of the character
+         EXPAND_TABS : select case (iade)     ! take different actions depending on which character was found
+         case(9)                              ! test if character is a tab and move pointer out to appropriate column
+            ipos = ipos + (tabsize - (mod(ipos-1,tabsize)))
+         case(10,13)                          ! convert carriage-return and new-line to space ,typically to handle DOS-format files
+            ipos=ipos+1
+         case default                         ! c is anything else other than a tab,newline,or return  insert it in output string
+            if(ipos > lenout)then
+               write(stderr,*)"*notabs* output string overflow"
+               exit
+            else
+               outstr(ipos:ipos)=c
+               ipos=ipos+1
+            endif
+         end select EXPAND_TABS
+      enddo SCAN_LINE
+!===================================================================================================================================
+      ipos=min(ipos,lenout)                   ! tabs or newline or return characters or last character might have gone too far
+      ilen=len_trim(outstr(:ipos))            ! trim trailing spaces
+!===================================================================================================================================
+end subroutine notabs
+!> Returns string with special characters replaced with an underscore.
+!! For now, only a hyphen is treated as a special character, but this can be
+!! expanded to other characters if needed.
+pure function to_fortran_name(string) result(res)
+    character(*), intent(in) :: string
+    character(len(string)) :: res
+    character, parameter :: SPECIAL_CHARACTERS(*) = ['-']
+    res = replace(string, SPECIAL_CHARACTERS, '_')
+end function to_fortran_name
+
+function is_fortran_name(line) result (lout)
+! determine if a string is a valid Fortran name ignoring trailing spaces
+! (but not leading spaces)
+    character(len=*),parameter   :: int='0123456789'
+    character(len=*),parameter   :: lower='abcdefghijklmnopqrstuvwxyz'
+    character(len=*),parameter   :: upper='ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    character(len=*),parameter   :: allowed=upper//lower//int//'_'
+    character(len=*),intent(in)  :: line
+    character(len=:),allocatable :: name
+    logical                      :: lout
+        name=trim(line)
+        if(len(name).ne.0)then
+            lout = .true.                                  &
+             & .and. verify(name(1:1), lower//upper) == 0  &
+             & .and. verify(name,allowed) == 0             &
+             & .and. len(name) <= 63
+        else
+            lout = .false.
+        endif
+    end function is_fortran_name
+
 end module fpm_strings
- 
- 
-!>>>>> ././src/fpm/error.f90
-!> Implementation of basic error handling.
-module fpm_error
-    implicit none
-    private
-
-    public :: error_t
-    public :: fatal_error, syntax_error, file_not_found_error
-    public :: file_parse_error
-
-
-    !> Data type defining an error
-    type :: error_t
-
-        !> Error message
-        character(len=:), allocatable :: message
-
-    end type error_t
-
-
-    !> Alias syntax errors to fatal errors for now
-    interface syntax_error
-        module procedure :: fatal_error
-    end interface syntax_error
-
-
-contains
-
-
-    !> Generic fatal runtime error
-    subroutine fatal_error(error, message)
-
-        !> Instance of the error data
-        type(error_t), allocatable, intent(out) :: error
-
-        !> Error message
-        character(len=*), intent(in) :: message
-
-        allocate(error)
-        error%message = message
-
-    end subroutine fatal_error
-
-
-    !> Error created when a file is missing or not found
-    subroutine file_not_found_error(error, file_name)
-
-        !> Instance of the error data
-        type(error_t), allocatable, intent(out) :: error
-
-        !> Name of the missing file
-        character(len=*), intent(in) :: file_name
-
-        allocate(error)
-        error%message = "'"//file_name//"' could not be found, check if the file exists"
-
-    end subroutine file_not_found_error
-
-
-    !> Error created when file parsing fails
-    subroutine file_parse_error(error, file_name, message, line_num, &
-                                 line_string, line_col)
-
-        !> Instance of the error data
-        type(error_t), allocatable, intent(out) :: error
-
-        !> Name of file
-        character(len=*), intent(in) :: file_name
-
-        !> Parse error message
-        character(len=*), intent(in) :: message
-
-        !> Line number of parse error
-        integer, intent(in), optional :: line_num
-
-        !> Line context string
-        character(len=*), intent(in), optional :: line_string
-
-        !> Line context column
-        integer, intent(in), optional :: line_col
-
-        character(50) :: temp_string
-
-        allocate(error)
-        error%message = 'Parse error: '//message//new_line('a')
-        
-        error%message = error%message//file_name
-        
-        if (present(line_num)) then
-
-            write(temp_string,'(I0)') line_num
-
-            error%message = error%message//':'//trim(temp_string)
-
-        end if
-
-        if (present(line_col)) then
-
-            if (line_col > 0) then
-
-                write(temp_string,'(I0)') line_col
-                error%message = error%message//':'//trim(temp_string)
-
-            end if
-
-        end if
-
-        if (present(line_string)) then
-
-            error%message = error%message//new_line('a')
-            error%message = error%message//'   | '//line_string
-
-            if (present(line_col)) then
-
-                if (line_col > 0) then
-
-                    error%message = error%message//new_line('a')
-                    error%message = error%message//'   | '//repeat(' ',line_col-1)//'^'
-                
-                end if
-                
-            end if
-
-        end if
-
-    end subroutine file_parse_error
-
-
-end module fpm_error
  
  
 !>>>>> build/dependencies/toml-f/src/tomlf/constants.f90
@@ -8936,421 +8951,6 @@ end module M_list2
 !===================================================================================================================================
  
  
-!>>>>> ././src/fpm/versioning.f90
-!> Implementation of versioning data for comparing packages
-module fpm_versioning
-    use fpm_error, only : error_t, syntax_error
-    implicit none
-    private
-
-    public :: version_t, new_version, char
-
-
-    type :: version_t
-        private
-
-        !> Version numbers found
-        integer, allocatable :: num(:)
-
-    contains
-
-        generic :: operator(==) => equals
-        procedure, private :: equals
-
-        generic :: operator(/=) => not_equals
-        procedure, private :: not_equals
-
-        generic :: operator(>) => greater
-        procedure, private :: greater
-
-        generic :: operator(<) => less
-        procedure, private :: less
-
-        generic :: operator(>=) => greater_equals
-        procedure, private :: greater_equals
-
-        generic :: operator(<=) => less_equals
-        procedure, private :: less_equals
-
-        !> Compare a version against a version constraint (x.x.0 <= v < x.x.HUGE)
-        generic :: operator(.match.) => match
-        procedure, private :: match
-
-        !> Create a printable string from a version data type
-        procedure :: to_string
-
-    end type version_t
-
-
-    !> Arbitrary internal limit of the version parser
-    integer, parameter :: max_limit = 3
-
-
-    interface char
-        module procedure :: as_string
-    end interface char
-
-
-    interface new_version
-        module procedure :: new_version_from_string
-        module procedure :: new_version_from_int
-    end interface new_version
-
-
-contains
-
-
-    !> Create a new version from a string
-    subroutine new_version_from_int(self, num)
-
-        !> Instance of the versioning data
-        type(version_t), intent(out) :: self
-
-        !> Subversion numbers to define version data
-        integer, intent(in) :: num(:)
-
-        self%num = num
-
-    end subroutine new_version_from_int
-
-
-    !> Create a new version from a string
-    subroutine new_version_from_string(self, string, error)
-
-        !> Instance of the versioning data
-        type(version_t), intent(out) :: self
-
-        !> String describing the version information
-        character(len=*), intent(in) :: string
-
-        !> Error handling
-        type(error_t), allocatable, intent(out) :: error
-
-        character :: tok
-        integer :: ii, istart, iend, stat, nn
-        integer :: num(max_limit)
-        logical :: is_number
-
-        nn = 0
-        iend = 0
-        istart = 0
-        is_number = .false.
-
-        do while(iend < len(string))
-            call next(string, istart, iend, is_number, error)
-            if (allocated(error)) exit
-            if (is_number) then
-                if (nn >= max_limit) then
-                    call token_error(error, string, istart, iend, &
-                        & "Too many subversions found")
-                    exit
-                end if
-                nn = nn + 1
-                read(string(istart:iend), *, iostat=stat) num(nn)
-                if (stat /= 0) then
-                    call token_error(error, string, istart, iend, &
-                        & "Failed to parse version number")
-                    exit
-                end if
-            end if
-        end do
-        if (allocated(error)) return
-        if (.not.is_number) then
-            call token_error(error, string, istart, iend, &
-                & "Expected version number, but no characters are left")
-            return
-        end if
-
-        call new_version(self, num(:nn))
-
-    end subroutine new_version_from_string
-
-
-    !> Tokenize a version string
-    subroutine next(string, istart, iend, is_number, error)
-
-        !> String describing the version information
-        character(len=*), intent(in) :: string
-
-        !> Start of last token, start of next token on exit
-        integer, intent(inout) :: istart
-
-        !> End of last token on entry, end of next token on exit
-        integer, intent(inout) :: iend
-
-        !> Token produced is a number
-        logical, intent(inout) :: is_number
-
-        !> Error handling
-        type(error_t), allocatable, intent(out) :: error
-
-        integer :: ii, nn
-        logical :: was_number
-        character :: tok, last
-
-        was_number = is_number
-        nn = len(string)
-
-        if (iend >= nn) then
-            istart = nn
-            iend = nn
-            return
-        end if
-
-        ii = min(iend + 1, nn)
-        tok = string(ii:ii)
-
-        is_number = tok /= '.'
-        if (is_number .eqv. was_number) then
-            call token_error(error, string, istart, ii, &
-                & "Unexpected token found")
-            return
-        end if
-
-        if (.not.is_number) then
-            is_number = .false.
-            istart = ii
-            iend = ii
-            return
-        end if
-
-        istart = ii
-        do ii = min(iend + 1, nn), nn
-            tok = string(ii:ii)
-            select case(tok)
-            case default
-                call token_error(error, string, istart, ii, &
-                    & "Invalid character in version number")
-                exit
-            case('.')
-                exit
-            case('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
-                iend = ii
-                cycle
-            end select
-        end do
-
-    end subroutine next
-
-
-    !> Create an error on an invalid token, provide some visual context as well
-    subroutine token_error(error, string, istart, iend, message)
-
-        !> Error handling
-        type(error_t), allocatable, intent(out) :: error
-
-        !> String describing the version information
-        character(len=*), intent(in) :: string
-
-        !> Start of last token, start of next token on exit
-        integer, intent(in) :: istart
-
-        !> End of last token on entry, end of next token on exit
-        integer, intent(in) :: iend
-
-        !> Error message
-        character(len=*), intent(in) :: message
-
-        character(len=*), parameter :: nl = new_line('a')
-
-        allocate(error)
-        error%message = message // nl // "  | " // string // nl // &
-            & "  |" // repeat('-', istart) // repeat('^', iend - istart + 1)
-
-    end subroutine token_error
-
-
-    subroutine to_string(self, string)
-
-        !> Version number
-        class(version_t), intent(in) :: self
-
-        !> Character representation of the version
-        character(len=:), allocatable, intent(out) :: string
-
-        integer, parameter :: buffersize = 64
-        character(len=buffersize) :: buffer
-        integer :: ii
-
-        do ii = 1, size(self%num)
-            if (allocated(string)) then
-                write(buffer, '(".", i0)') self%num(ii)
-                string = string // trim(buffer)
-            else
-                write(buffer, '(i0)') self%num(ii)
-                string = trim(buffer)
-            end if
-        end do
-
-        if (.not.allocated(string)) then
-            string = '0'
-        end if
-
-    end subroutine to_string
-
-
-    function as_string(self) result(string)
-
-        !> Version number
-        class(version_t), intent(in) :: self
-
-        !> Character representation of the version
-        character(len=:), allocatable :: string
-
-        call self%to_string(string)
-
-    end function as_string
-
-
-    !> Check to version numbers for equality
-    elemental function equals(lhs, rhs) result(is_equal)
-
-        !> First version number
-        class(version_t), intent(in) :: lhs
-
-        !> Second version number
-        class(version_t), intent(in) :: rhs
-
-        !> Version match
-        logical :: is_equal
-
-        is_equal = .not.(lhs > rhs)
-        if (is_equal) then
-            is_equal = .not.(rhs > lhs)
-        end if
-
-    end function equals
-
-
-    !> Check two versions for inequality
-    elemental function not_equals(lhs, rhs) result(not_equal)
-
-        !> First version number
-        class(version_t), intent(in) :: lhs
-
-        !> Second version number
-        class(version_t), intent(in) :: rhs
-
-        !> Version mismatch
-        logical :: not_equal
-
-        not_equal = lhs > rhs
-        if (.not.not_equal) then
-            not_equal = rhs > lhs
-        end if
-
-    end function not_equals
-
-
-    !> Relative comparison of two versions
-    elemental function greater(lhs, rhs) result(is_greater)
-
-        !> First version number
-        class(version_t), intent(in) :: lhs
-
-        !> Second version number
-        class(version_t), intent(in) :: rhs
-
-        !> First version is greater
-        logical :: is_greater
-
-        integer :: ii
-
-        do ii = 1, min(size(lhs%num), size(rhs%num))
-            is_greater = lhs%num(ii) > rhs%num(ii)
-            if (is_greater) exit
-        end do
-        if (is_greater) return
-
-        is_greater = size(lhs%num) > size(rhs%num)
-        if (is_greater) then
-            do ii = size(rhs%num) + 1, size(lhs%num)
-                is_greater = lhs%num(ii) > 0
-                if (is_greater) exit
-            end do
-        end if
-
-    end function greater
-
-
-    !> Relative comparison of two versions
-    elemental function less(lhs, rhs) result(is_less)
-
-        !> First version number
-        class(version_t), intent(in) :: lhs
-
-        !> Second version number
-        class(version_t), intent(in) :: rhs
-
-        !> First version is less
-        logical :: is_less
-
-        is_less = rhs > lhs
-
-    end function less
-
-
-    !> Relative comparison of two versions
-    elemental function greater_equals(lhs, rhs) result(is_greater_equal)
-
-        !> First version number
-        class(version_t), intent(in) :: lhs
-
-        !> Second version number
-        class(version_t), intent(in) :: rhs
-
-        !> First version is greater or equal
-        logical :: is_greater_equal
-
-        is_greater_equal = .not. (rhs > lhs)
-
-    end function greater_equals
-
-
-    !> Relative comparison of two versions
-    elemental function less_equals(lhs, rhs) result(is_less_equal)
-
-        !> First version number
-        class(version_t), intent(in) :: lhs
-
-        !> Second version number
-        class(version_t), intent(in) :: rhs
-
-        !> First version is less or equal
-        logical :: is_less_equal
-
-        is_less_equal = .not. (lhs > rhs)
-
-    end function less_equals
-
-
-    !> Try to match first version against second version
-    elemental function match(lhs, rhs)
-
-        !> First version number
-        class(version_t), intent(in) :: lhs
-
-        !> Second version number
-        class(version_t), intent(in) :: rhs
-
-        !> Version match following semantic versioning rules
-        logical :: match
-
-        type(version_t) :: tmp
-
-        match = .not.(rhs > lhs)
-        if (match) then
-            tmp%num = rhs%num
-            tmp%num(size(tmp%num)) = tmp%num(size(tmp%num)) + 1
-            match = tmp > lhs
-        end if
-
-    end function match
-
-
-end module fpm_versioning
- 
- 
 !>>>>> build/dependencies/toml-f/src/tomlf/datetime.f90
 ! This file is part of toml-f.
 !
@@ -11248,351 +10848,189 @@ end module M_escape
 !===================================================================================================================================
  
  
-!>>>>> ././src/fpm_environment.f90
-!> This module contains procedures that interact with the programming environment.
-!!
-!! * [get_os_type] -- Determine the OS type
-!! * [get_env] -- return the value of an environment variable
-module fpm_environment
-    use,intrinsic :: iso_fortran_env, only : stdin=>input_unit,   &
-                                           & stdout=>output_unit, &
-                                           & stderr=>error_unit
+!>>>>> ././src/fpm/error.f90
+!> Implementation of basic error handling.
+module fpm_error
+    use,intrinsic :: iso_fortran_env, only : stdin=>input_unit, stdout=>output_unit, stderr=>error_unit
     use M_escape, only : esc
+    use fpm_strings, only : is_fortran_name, to_fortran_name
     implicit none
     private
-    public :: get_os_type
-    public :: os_is_unix
-    public :: run
-    public :: get_env
-    public :: get_command_arguments_quoted
-    public :: separator
+
+    public :: error_t
+    public :: fatal_error, syntax_error, file_not_found_error
+    public :: file_parse_error
+    public :: bad_name_error
     public :: fpm_stop
 
-    integer, parameter, public :: OS_UNKNOWN = 0
-    integer, parameter, public :: OS_LINUX   = 1
-    integer, parameter, public :: OS_MACOS   = 2
-    integer, parameter, public :: OS_WINDOWS = 3
-    integer, parameter, public :: OS_CYGWIN  = 4
-    integer, parameter, public :: OS_SOLARIS = 5
-    integer, parameter, public :: OS_FREEBSD = 6
-    integer, parameter, public :: OS_OPENBSD = 7
+
+    !> Data type defining an error
+    type :: error_t
+
+        !> Error message
+        character(len=:), allocatable :: message
+
+    end type error_t
 
 contains
-    !> Determine the OS type
-    integer function get_os_type() result(r)
-        !!
-        !! Returns one of OS_UNKNOWN, OS_LINUX, OS_MACOS, OS_WINDOWS, OS_CYGWIN,
-        !! OS_SOLARIS, OS_FREEBSD, OS_OPENBSD.
-        !!
-        !! At first, the environment variable `OS` is checked, which is usually
-        !! found on Windows. Then, `OSTYPE` is read in and compared with common
-        !! names. If this fails too, check the existence of files that can be
-        !! found on specific system types only.
-        !!
-        !! Returns OS_UNKNOWN if the operating system cannot be determined.
-        character(len=32) :: val
-        integer           :: length, rc
-        logical           :: file_exists
 
-        r = OS_UNKNOWN
+    !> Generic fatal runtime error
+    subroutine fatal_error(error, message)
 
-        ! Check environment variable `OS`.
-        call get_environment_variable('OS', val, length, rc)
+        !> Instance of the error data
+        type(error_t), allocatable, intent(out) :: error
 
-        if (rc == 0 .and. length > 0 .and. index(val, 'Windows_NT') > 0) then
-            r = OS_WINDOWS
-            return
-        end if
+        !> Error message
+        character(len=*), intent(in) :: message
 
-        ! Check environment variable `OSTYPE`.
-        call get_environment_variable('OSTYPE', val, length, rc)
+        allocate(error)
+        error%message = message
 
-        if (rc == 0 .and. length > 0) then
-            ! Linux
-            if (index(val, 'linux') > 0) then
-                r = OS_LINUX
-                return
-            end if
+    end subroutine fatal_error
 
-            ! macOS
-            if (index(val, 'darwin') > 0) then
-                r = OS_MACOS
-                return
-            end if
+    subroutine syntax_error(error, message)
 
-            ! Windows, MSYS, MinGW, Git Bash
-            if (index(val, 'win') > 0 .or. index(val, 'msys') > 0) then
-                r = OS_WINDOWS
-                return
-            end if
+        !> Instance of the error data
+        type(error_t), allocatable, intent(out) :: error
 
-            ! Cygwin
-            if (index(val, 'cygwin') > 0) then
-                r = OS_CYGWIN
-                return
-            end if
+        !> Error message
+        character(len=*), intent(in) :: message
 
-            ! Solaris, OpenIndiana, ...
-            if (index(val, 'SunOS') > 0 .or. index(val, 'solaris') > 0) then
-                r = OS_SOLARIS
-                return
-            end if
+        allocate(error)
+        error%message = message
 
-            ! FreeBSD
-            if (index(val, 'FreeBSD') > 0 .or. index(val, 'freebsd') > 0) then
-                r = OS_FREEBSD
-                return
-            end if
+    end subroutine syntax_error
 
-            ! OpenBSD
-            if (index(val, 'OpenBSD') > 0 .or. index(val, 'openbsd') > 0) then
-                r = OS_OPENBSD
-                return
-            end if
-        end if
+    function bad_name_error(error, label,name)
 
-        ! Linux
-        inquire (file='/etc/os-release', exist=file_exists)
+        !> Instance of the error data
+        type(error_t), allocatable, intent(out) :: error
 
-        if (file_exists) then
-            r = OS_LINUX
-            return
-        end if
+        !> Error message label to add to message
+        character(len=*), intent(in) :: label
 
-        ! macOS
-        inquire (file='/usr/bin/sw_vers', exist=file_exists)
+        !> name value to check
+        character(len=*), intent(in) :: name
 
-        if (file_exists) then
-            r = OS_MACOS
-            return
-        end if
+        logical :: bad_name_error
 
-        ! FreeBSD
-        inquire (file='/bin/freebsd-version', exist=file_exists)
-
-        if (file_exists) then
-            r = OS_FREEBSD
-            return
-        end if
-    end function get_os_type
-
-    !> Compare the output of [[get_os_type]] or the optional
-    !! passed INTEGER value to the value for OS_WINDOWS
-    !! and return .TRUE. if they match and .FALSE. otherwise
-    logical function os_is_unix(os) result(unix)
-        integer, intent(in), optional :: os
-        integer :: build_os
-        if (present(os)) then
-            build_os = os
+        if(.not.is_fortran_name(to_fortran_name(name)))then
+           bad_name_error=.true.
+           allocate(error)
+           error%message = 'manifest file syntax error: '//label//' name must be composed only of &
+           &alphanumerics, "-" and "_"  and start with a letter ::'//name
         else
-            build_os = get_os_type()
-        end if
-        unix = os /= OS_WINDOWS
-    end function os_is_unix
-
-    !> echo command string and pass it to the system for execution
-    subroutine run(cmd,echo,exitstat)
-        character(len=*), intent(in) :: cmd
-        logical,intent(in),optional  :: echo
-        integer, intent(out),optional  :: exitstat
-        logical :: echo_local
-        integer :: stat
-
-        if(present(echo))then
-           echo_local=echo
-        else
-           echo_local=.true.
+          bad_name_error=.false.
         endif
-        if(echo_local) print *, '+ ', cmd
 
-        call execute_command_line(cmd, exitstat=stat)
+    end function bad_name_error
 
-        if (present(exitstat)) then
-            exitstat = stat
-        else
-            if (stat /= 0) then
-                call fpm_stop(stopmsg='Command_failed')
-            end if
+
+    !> Error created when a file is missing or not found
+    subroutine file_not_found_error(error, file_name)
+
+        !> Instance of the error data
+        type(error_t), allocatable, intent(out) :: error
+
+        !> Name of the missing file
+        character(len=*), intent(in) :: file_name
+
+        allocate(error)
+        error%message = "'"//file_name//"' could not be found, check if the file exists"
+
+    end subroutine file_not_found_error
+
+
+    !> Error created when file parsing fails
+    subroutine file_parse_error(error, file_name, message, line_num, &
+                                 line_string, line_col)
+
+        !> Instance of the error data
+        type(error_t), allocatable, intent(out) :: error
+
+        !> Name of file
+        character(len=*), intent(in) :: file_name
+
+        !> Parse error message
+        character(len=*), intent(in) :: message
+
+        !> Line number of parse error
+        integer, intent(in), optional :: line_num
+
+        !> Line context string
+        character(len=*), intent(in), optional :: line_string
+
+        !> Line context column
+        integer, intent(in), optional :: line_col
+
+        character(50) :: temp_string
+
+        allocate(error)
+        error%message = 'Parse error: '//message//new_line('a')
+
+        error%message = error%message//file_name
+
+        if (present(line_num)) then
+
+            write(temp_string,'(I0)') line_num
+
+            error%message = error%message//':'//trim(temp_string)
+
         end if
 
-    end subroutine run
+        if (present(line_col)) then
 
-    !> stop displaying optionally displaying potentially colored message
-    subroutine fpm_stop(stopcode,stopmsg)
-    implicit none
-    integer,intent(in),optional          :: stopcode
-    character(len=*),intent(in),optional :: stopmsg
-    integer                              :: local_code
-    integer                              :: ios
-       local_code=0
-       if(present(stopcode))local_code=stopcode
-       if(present(stopmsg)) write(stderr,'(a)',iostat=ios)esc('<r><bo>'//stopmsg)
-       stop local_code
+            if (line_col > 0) then
+
+                write(temp_string,'(I0)') line_col
+                error%message = error%message//':'//trim(temp_string)
+
+            end if
+
+        end if
+
+        if (present(line_string)) then
+
+            error%message = error%message//new_line('a')
+            error%message = error%message//'   | '//line_string
+
+            if (present(line_col)) then
+
+                if (line_col > 0) then
+
+                    error%message = error%message//new_line('a')
+                    error%message = error%message//'   | '//repeat(' ',line_col-1)//'^'
+
+                end if
+
+            end if
+
+        end if
+
+    end subroutine file_parse_error
+
+    subroutine fpm_stop(value,message)
+    ! TODO: if verbose mode, call ERROR STOP instead of STOP
+    ! TODO: if M_escape is used, add color
+    ! to work with older compilers might need a case statement for values
+
+        !> value to use on STOP
+        integer, intent(in) :: value
+        !> Error message
+        character(len=*), intent(in) :: message
+        integer    :: ios
+        if(message.ne.'')then
+           if(value.gt.0)then
+              write(stderr,'(a)',iostat=ios)esc('<r><bo>error:'//trim(message))
+           else
+              write(stderr,'(a)',iostat=ios)'<y><bo>info:'//trim(message)
+           endif
+        endif
+        stop value
     end subroutine fpm_stop
 
-    !> get named environment variable value. It it is blank or
-    !! not set return the optional default value
-    function get_env(NAME,DEFAULT) result(VALUE)
-    implicit none
-    !> name of environment variable to get the value of
-    character(len=*),intent(in)          :: NAME
-    !> default value to return if the requested value is undefined or blank
-    character(len=*),intent(in),optional :: DEFAULT
-    !> the returned value
-    character(len=:),allocatable         :: VALUE
-    integer                              :: howbig
-    integer                              :: stat
-    integer                              :: length
-        ! get length required to hold value
-        length=0
-        if(NAME.ne.'')then
-           call get_environment_variable(NAME, length=howbig,status=stat,trim_name=.true.)
-           select case (stat)
-           case (1)
-               !*!print *, NAME, " is not defined in the environment. Strange..."
-               VALUE=''
-           case (2)
-               !*!print *, "This processor doesn't support environment variables. Boooh!"
-               VALUE=''
-           case default
-               ! make string to hold value of sufficient size
-               allocate(character(len=max(howbig,1)) :: VALUE)
-               ! get value
-               call get_environment_variable(NAME,VALUE,status=stat,trim_name=.true.)
-               if(stat.ne.0)VALUE=''
-           end select
-        else
-           VALUE=''
-        endif
-        if(VALUE.eq.''.and.present(DEFAULT))VALUE=DEFAULT
-     end function get_env
+end module fpm_error
 
-    function get_command_arguments_quoted() result(args)
-    character(len=:),allocatable :: args
-    character(len=:),allocatable :: arg
-    character(len=1)             :: quote
-    integer                      :: ilength, istatus, i
-    ilength=0
-    args=''
-        quote=merge('"',"'",separator().eq.'\')
-        do i=2,command_argument_count() ! look at all arguments after subcommand
-            call get_command_argument(number=i,length=ilength,status=istatus)
-            if(istatus /= 0) then
-                write(stderr,'(*(g0,1x))')esc('<r><bo>error:'),'get_command_arguments_stack* error obtaining argument ',i
-                exit
-            else
-                if(allocated(arg))deallocate(arg)
-                allocate(character(len=ilength) :: arg)
-                call get_command_argument(number=i,value=arg,length=ilength,status=istatus)
-                if(istatus /= 0) then
-                    write(stderr,'(*(g0,1x))') esc('<r><bo>error:'),'get_command_arguments_stack* error obtaining argument ',i
-                    exit
-                elseif(ilength.gt.0)then
-                    if(index(arg//' ','-').ne.1)then
-                        args=args//quote//arg//quote//' '
-                    elseif(index(arg,' ').ne.0)then
-                        args=args//quote//arg//quote//' '
-                    else
-                        args=args//arg//' '
-                    endif
-                else
-                    args=args//repeat(quote,2)//' '
-                endif
-             endif
-         enddo
-    end function get_command_arguments_quoted
-
-function separator() result(sep)
-!>
-!!##NAME
-!!    separator(3f) - [M_io:ENVIRONMENT] try to determine pathname directory separator character
-!!    (LICENSE:PD)
-!!
-!!##SYNOPSIS
-!!
-!!    function separator() result(sep)
-!!
-!!     character(len=1) :: sep
-!!
-!!##DESCRIPTION
-!!    First using the name the program was invoked with, then the name
-!!    returned by an INQUIRE(3f) of that name, then ".\NAME" and "./NAME"
-!!    try to determine the separator character used to separate directory
-!!    names from file basenames.
-!!
-!!    If a slash or backslash is not found in the name, the environment
-!!    variable PATH is examined first for a backslash, then a slash.
-!!
-!!    Can be very system dependent. If the queries fail the default returned
-!!    is "/".
-!!
-!!##EXAMPLE
-!!
-!!   sample usage
-!!
-!!    program demo_separator
-!!    use M_io, only : separator
-!!    implicit none
-!!       write(*,*)'separator=',separator()
-!!    end program demo_separator
-
-! use the pathname returned as arg0 to determine pathname separator
-implicit none
-character(len=:),allocatable :: arg0
-integer                      :: arg0_length
-integer                      :: istat
-logical                      :: existing
-character(len=1)             :: sep
-!*ifort_bug*!character(len=1),save        :: sep_cache=' '
-character(len=4096)          :: name
-character(len=:),allocatable :: fname
-
-   !*ifort_bug*!   if(sep_cache.ne.' ')then  ! use cached value. NOTE:  A parallel code might theoretically use multiple OS
-   !*ifort_bug*!      sep=sep_cache
-   !*ifort_bug*!      return
-   !*ifort_bug*!   endif
-
-   arg0_length=0
-   name=' '
-   call get_command_argument(0,length=arg0_length,status=istat)
-   if(allocated(arg0))deallocate(arg0)
-   allocate(character(len=arg0_length) :: arg0)
-   call get_command_argument(0,arg0,status=istat)
-   ! check argument name
-   if(index(arg0,'\').ne.0)then
-      sep='\'
-   elseif(index(arg0,'/').ne.0)then
-      sep='/'
-   else
-      ! try name returned by INQUIRE(3f)
-      existing=.false.
-      name=' '
-      inquire(file=arg0,iostat=istat,exist=existing,name=name)
-      if(index(name,'\').ne.0)then
-         sep='\'
-      elseif(index(name,'/').ne.0)then
-         sep='/'
-      else
-         ! well, try some common syntax and assume in current directory
-         fname='.\'//arg0
-         inquire(file=fname,iostat=istat,exist=existing)
-         if(existing)then
-            sep='\'
-         else
-            fname='./'//arg0
-            inquire(file=fname,iostat=istat,exist=existing)
-            if(existing)then
-               sep='/'
-            else ! check environment variable PATH
-               sep=merge('\','/',index(get_env('PATH'),'\').ne.0)
-               !*!write(*,*)'<WARNING>unknown system directory path separator'
-            endif
-         endif
-      endif
-   endif
-   !*ifort_bug*!sep_cache=sep
-end function separator
-end module fpm_environment
  
  
 !>>>>> build/dependencies/toml-f/src/tomlf/utils/convert.f90
@@ -11899,21 +11337,874 @@ end subroutine toml_normalize_string
 end module tomlf_utils_convert
  
  
+!>>>>> ././src/fpm_environment.f90
+!> This module contains procedures that interact with the programming environment.
+!!
+!! * [get_os_type] -- Determine the OS type
+!! * [get_env] -- return the value of an environment variable
+module fpm_environment
+    use,intrinsic :: iso_fortran_env, only : stdin=>input_unit,   &
+                                           & stdout=>output_unit, &
+                                           & stderr=>error_unit
+    use M_escape, only : esc
+    use fpm_error, only : fpm_stop
+    implicit none
+    private
+    public :: get_os_type
+    public :: os_is_unix
+    public :: run
+    public :: get_env
+    public :: get_command_arguments_quoted
+    public :: separator
+
+    integer, parameter, public :: OS_UNKNOWN = 0
+    integer, parameter, public :: OS_LINUX   = 1
+    integer, parameter, public :: OS_MACOS   = 2
+    integer, parameter, public :: OS_WINDOWS = 3
+    integer, parameter, public :: OS_CYGWIN  = 4
+    integer, parameter, public :: OS_SOLARIS = 5
+    integer, parameter, public :: OS_FREEBSD = 6
+    integer, parameter, public :: OS_OPENBSD = 7
+
+contains
+    !> Determine the OS type
+    integer function get_os_type() result(r)
+        !!
+        !! Returns one of OS_UNKNOWN, OS_LINUX, OS_MACOS, OS_WINDOWS, OS_CYGWIN,
+        !! OS_SOLARIS, OS_FREEBSD, OS_OPENBSD.
+        !!
+        !! At first, the environment variable `OS` is checked, which is usually
+        !! found on Windows. Then, `OSTYPE` is read in and compared with common
+        !! names. If this fails too, check the existence of files that can be
+        !! found on specific system types only.
+        !!
+        !! Returns OS_UNKNOWN if the operating system cannot be determined.
+        character(len=32) :: val
+        integer           :: length, rc
+        logical           :: file_exists
+
+        r = OS_UNKNOWN
+
+        ! Check environment variable `OS`.
+        call get_environment_variable('OS', val, length, rc)
+
+        if (rc == 0 .and. length > 0 .and. index(val, 'Windows_NT') > 0) then
+            r = OS_WINDOWS
+            return
+        end if
+
+        ! Check environment variable `OSTYPE`.
+        call get_environment_variable('OSTYPE', val, length, rc)
+
+        if (rc == 0 .and. length > 0) then
+            ! Linux
+            if (index(val, 'linux') > 0) then
+                r = OS_LINUX
+                return
+            end if
+
+            ! macOS
+            if (index(val, 'darwin') > 0) then
+                r = OS_MACOS
+                return
+            end if
+
+            ! Windows, MSYS, MinGW, Git Bash
+            if (index(val, 'win') > 0 .or. index(val, 'msys') > 0) then
+                r = OS_WINDOWS
+                return
+            end if
+
+            ! Cygwin
+            if (index(val, 'cygwin') > 0) then
+                r = OS_CYGWIN
+                return
+            end if
+
+            ! Solaris, OpenIndiana, ...
+            if (index(val, 'SunOS') > 0 .or. index(val, 'solaris') > 0) then
+                r = OS_SOLARIS
+                return
+            end if
+
+            ! FreeBSD
+            if (index(val, 'FreeBSD') > 0 .or. index(val, 'freebsd') > 0) then
+                r = OS_FREEBSD
+                return
+            end if
+
+            ! OpenBSD
+            if (index(val, 'OpenBSD') > 0 .or. index(val, 'openbsd') > 0) then
+                r = OS_OPENBSD
+                return
+            end if
+        end if
+
+        ! Linux
+        inquire (file='/etc/os-release', exist=file_exists)
+
+        if (file_exists) then
+            r = OS_LINUX
+            return
+        end if
+
+        ! macOS
+        inquire (file='/usr/bin/sw_vers', exist=file_exists)
+
+        if (file_exists) then
+            r = OS_MACOS
+            return
+        end if
+
+        ! FreeBSD
+        inquire (file='/bin/freebsd-version', exist=file_exists)
+
+        if (file_exists) then
+            r = OS_FREEBSD
+            return
+        end if
+    end function get_os_type
+
+    !> Compare the output of [[get_os_type]] or the optional
+    !! passed INTEGER value to the value for OS_WINDOWS
+    !! and return .TRUE. if they match and .FALSE. otherwise
+    logical function os_is_unix(os) result(unix)
+        integer, intent(in), optional :: os
+        integer :: build_os
+        if (present(os)) then
+            build_os = os
+        else
+            build_os = get_os_type()
+        end if
+        unix = os /= OS_WINDOWS
+    end function os_is_unix
+
+    !> echo command string and pass it to the system for execution
+    subroutine run(cmd,echo,exitstat)
+        character(len=*), intent(in) :: cmd
+        logical,intent(in),optional  :: echo
+        integer, intent(out),optional  :: exitstat
+        logical :: echo_local
+        integer :: stat
+
+        if(present(echo))then
+           echo_local=echo
+        else
+           echo_local=.true.
+        endif
+        if(echo_local) print *, '+ ', cmd
+
+        call execute_command_line(cmd, exitstat=stat)
+
+        if (present(exitstat)) then
+            exitstat = stat
+        else
+            if (stat /= 0) then
+                call fpm_stop(1,'*run*:Command failed')
+            end if
+        end if
+
+    end subroutine run
+
+    !> get named environment variable value. It it is blank or
+    !! not set return the optional default value
+    function get_env(NAME,DEFAULT) result(VALUE)
+    implicit none
+    !> name of environment variable to get the value of
+    character(len=*),intent(in)          :: NAME
+    !> default value to return if the requested value is undefined or blank
+    character(len=*),intent(in),optional :: DEFAULT
+    !> the returned value
+    character(len=:),allocatable         :: VALUE
+    integer                              :: howbig
+    integer                              :: stat
+    integer                              :: length
+        ! get length required to hold value
+        length=0
+        if(NAME.ne.'')then
+           call get_environment_variable(NAME, length=howbig,status=stat,trim_name=.true.)
+           select case (stat)
+           case (1)
+               !*!print *, NAME, " is not defined in the environment. Strange..."
+               VALUE=''
+           case (2)
+               !*!print *, "This processor doesn't support environment variables. Boooh!"
+               VALUE=''
+           case default
+               ! make string to hold value of sufficient size
+               allocate(character(len=max(howbig,1)) :: VALUE)
+               ! get value
+               call get_environment_variable(NAME,VALUE,status=stat,trim_name=.true.)
+               if(stat.ne.0)VALUE=''
+           end select
+        else
+           VALUE=''
+        endif
+        if(VALUE.eq.''.and.present(DEFAULT))VALUE=DEFAULT
+     end function get_env
+
+    function get_command_arguments_quoted() result(args)
+    character(len=:),allocatable :: args
+    character(len=:),allocatable :: arg
+    character(len=1)             :: quote
+    integer                      :: ilength, istatus, i
+    ilength=0
+    args=''
+        quote=merge('"',"'",separator().eq.'\')
+        do i=2,command_argument_count() ! look at all arguments after subcommand
+            call get_command_argument(number=i,length=ilength,status=istatus)
+            if(istatus /= 0) then
+                write(stderr,'(*(g0,1x))')esc('<r><bo>error:'),'get_command_arguments_stack* error obtaining argument ',i
+                exit
+            else
+                if(allocated(arg))deallocate(arg)
+                allocate(character(len=ilength) :: arg)
+                call get_command_argument(number=i,value=arg,length=ilength,status=istatus)
+                if(istatus /= 0) then
+                    write(stderr,'(*(g0,1x))') esc('<r><bo>error:'),'get_command_arguments_stack* error obtaining argument ',i
+                    exit
+                elseif(ilength.gt.0)then
+                    if(index(arg//' ','-').ne.1)then
+                        args=args//quote//arg//quote//' '
+                    elseif(index(arg,' ').ne.0)then
+                        args=args//quote//arg//quote//' '
+                    else
+                        args=args//arg//' '
+                    endif
+                else
+                    args=args//repeat(quote,2)//' '
+                endif
+             endif
+         enddo
+    end function get_command_arguments_quoted
+
+function separator() result(sep)
+!>
+!!##NAME
+!!    separator(3f) - [M_io:ENVIRONMENT] try to determine pathname directory separator character
+!!    (LICENSE:PD)
+!!
+!!##SYNOPSIS
+!!
+!!    function separator() result(sep)
+!!
+!!     character(len=1) :: sep
+!!
+!!##DESCRIPTION
+!!    First using the name the program was invoked with, then the name
+!!    returned by an INQUIRE(3f) of that name, then ".\NAME" and "./NAME"
+!!    try to determine the separator character used to separate directory
+!!    names from file basenames.
+!!
+!!    If a slash or backslash is not found in the name, the environment
+!!    variable PATH is examined first for a backslash, then a slash.
+!!
+!!    Can be very system dependent. If the queries fail the default returned
+!!    is "/".
+!!
+!!##EXAMPLE
+!!
+!!   sample usage
+!!
+!!    program demo_separator
+!!    use M_io, only : separator
+!!    implicit none
+!!       write(*,*)'separator=',separator()
+!!    end program demo_separator
+
+! use the pathname returned as arg0 to determine pathname separator
+implicit none
+character(len=:),allocatable :: arg0
+integer                      :: arg0_length
+integer                      :: istat
+logical                      :: existing
+character(len=1)             :: sep
+!*ifort_bug*!character(len=1),save        :: sep_cache=' '
+character(len=4096)          :: name
+character(len=:),allocatable :: fname
+
+   !*ifort_bug*!   if(sep_cache.ne.' ')then  ! use cached value. NOTE:  A parallel code might theoretically use multiple OS
+   !*ifort_bug*!      sep=sep_cache
+   !*ifort_bug*!      return
+   !*ifort_bug*!   endif
+
+   arg0_length=0
+   name=' '
+   call get_command_argument(0,length=arg0_length,status=istat)
+   if(allocated(arg0))deallocate(arg0)
+   allocate(character(len=arg0_length) :: arg0)
+   call get_command_argument(0,arg0,status=istat)
+   ! check argument name
+   if(index(arg0,'\').ne.0)then
+      sep='\'
+   elseif(index(arg0,'/').ne.0)then
+      sep='/'
+   else
+      ! try name returned by INQUIRE(3f)
+      existing=.false.
+      name=' '
+      inquire(file=arg0,iostat=istat,exist=existing,name=name)
+      if(index(name,'\').ne.0)then
+         sep='\'
+      elseif(index(name,'/').ne.0)then
+         sep='/'
+      else
+         ! well, try some common syntax and assume in current directory
+         fname='.\'//arg0
+         inquire(file=fname,iostat=istat,exist=existing)
+         if(existing)then
+            sep='\'
+         else
+            fname='./'//arg0
+            inquire(file=fname,iostat=istat,exist=existing)
+            if(existing)then
+               sep='/'
+            else ! check environment variable PATH
+               sep=merge('\','/',index(get_env('PATH'),'\').ne.0)
+               !*!write(*,*)'<WARNING>unknown system directory path separator'
+            endif
+         endif
+      endif
+   endif
+   !*ifort_bug*!sep_cache=sep
+end function separator
+end module fpm_environment
+ 
+ 
+!>>>>> ././src/fpm/versioning.f90
+!> Implementation of versioning data for comparing packages
+module fpm_versioning
+    use fpm_error, only : error_t, syntax_error
+    implicit none
+    private
+
+    public :: version_t, new_version, char
+
+
+    type :: version_t
+        private
+
+        !> Version numbers found
+        integer, allocatable :: num(:)
+
+    contains
+
+        generic :: operator(==) => equals
+        procedure, private :: equals
+
+        generic :: operator(/=) => not_equals
+        procedure, private :: not_equals
+
+        generic :: operator(>) => greater
+        procedure, private :: greater
+
+        generic :: operator(<) => less
+        procedure, private :: less
+
+        generic :: operator(>=) => greater_equals
+        procedure, private :: greater_equals
+
+        generic :: operator(<=) => less_equals
+        procedure, private :: less_equals
+
+        !> Compare a version against a version constraint (x.x.0 <= v < x.x.HUGE)
+        generic :: operator(.match.) => match
+        procedure, private :: match
+
+        !> Create a printable string from a version data type
+        procedure :: to_string
+
+    end type version_t
+
+
+    !> Arbitrary internal limit of the version parser
+    integer, parameter :: max_limit = 3
+
+
+    interface char
+        module procedure :: as_string
+    end interface char
+
+
+    interface new_version
+        module procedure :: new_version_from_string
+        module procedure :: new_version_from_int
+    end interface new_version
+
+
+contains
+
+
+    !> Create a new version from a string
+    subroutine new_version_from_int(self, num)
+
+        !> Instance of the versioning data
+        type(version_t), intent(out) :: self
+
+        !> Subversion numbers to define version data
+        integer, intent(in) :: num(:)
+
+        self%num = num
+
+    end subroutine new_version_from_int
+
+
+    !> Create a new version from a string
+    subroutine new_version_from_string(self, string, error)
+
+        !> Instance of the versioning data
+        type(version_t), intent(out) :: self
+
+        !> String describing the version information
+        character(len=*), intent(in) :: string
+
+        !> Error handling
+        type(error_t), allocatable, intent(out) :: error
+
+        character :: tok
+        integer :: ii, istart, iend, stat, nn
+        integer :: num(max_limit)
+        logical :: is_number
+
+        nn = 0
+        iend = 0
+        istart = 0
+        is_number = .false.
+
+        do while(iend < len(string))
+            call next(string, istart, iend, is_number, error)
+            if (allocated(error)) exit
+            if (is_number) then
+                if (nn >= max_limit) then
+                    call token_error(error, string, istart, iend, &
+                        & "Too many subversions found")
+                    exit
+                end if
+                nn = nn + 1
+                read(string(istart:iend), *, iostat=stat) num(nn)
+                if (stat /= 0) then
+                    call token_error(error, string, istart, iend, &
+                        & "Failed to parse version number")
+                    exit
+                end if
+            end if
+        end do
+        if (allocated(error)) return
+        if (.not.is_number) then
+            call token_error(error, string, istart, iend, &
+                & "Expected version number, but no characters are left")
+            return
+        end if
+
+        call new_version(self, num(:nn))
+
+    end subroutine new_version_from_string
+
+
+    !> Tokenize a version string
+    subroutine next(string, istart, iend, is_number, error)
+
+        !> String describing the version information
+        character(len=*), intent(in) :: string
+
+        !> Start of last token, start of next token on exit
+        integer, intent(inout) :: istart
+
+        !> End of last token on entry, end of next token on exit
+        integer, intent(inout) :: iend
+
+        !> Token produced is a number
+        logical, intent(inout) :: is_number
+
+        !> Error handling
+        type(error_t), allocatable, intent(out) :: error
+
+        integer :: ii, nn
+        logical :: was_number
+        character :: tok, last
+
+        was_number = is_number
+        nn = len(string)
+
+        if (iend >= nn) then
+            istart = nn
+            iend = nn
+            return
+        end if
+
+        ii = min(iend + 1, nn)
+        tok = string(ii:ii)
+
+        is_number = tok /= '.'
+        if (is_number .eqv. was_number) then
+            call token_error(error, string, istart, ii, &
+                & "Unexpected token found")
+            return
+        end if
+
+        if (.not.is_number) then
+            is_number = .false.
+            istart = ii
+            iend = ii
+            return
+        end if
+
+        istart = ii
+        do ii = min(iend + 1, nn), nn
+            tok = string(ii:ii)
+            select case(tok)
+            case default
+                call token_error(error, string, istart, ii, &
+                    & "Invalid character in version number")
+                exit
+            case('.')
+                exit
+            case('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
+                iend = ii
+                cycle
+            end select
+        end do
+
+    end subroutine next
+
+
+    !> Create an error on an invalid token, provide some visual context as well
+    subroutine token_error(error, string, istart, iend, message)
+
+        !> Error handling
+        type(error_t), allocatable, intent(out) :: error
+
+        !> String describing the version information
+        character(len=*), intent(in) :: string
+
+        !> Start of last token, start of next token on exit
+        integer, intent(in) :: istart
+
+        !> End of last token on entry, end of next token on exit
+        integer, intent(in) :: iend
+
+        !> Error message
+        character(len=*), intent(in) :: message
+
+        character(len=*), parameter :: nl = new_line('a')
+
+        allocate(error)
+        error%message = message // nl // "  | " // string // nl // &
+            & "  |" // repeat('-', istart) // repeat('^', iend - istart + 1)
+
+    end subroutine token_error
+
+
+    subroutine to_string(self, string)
+
+        !> Version number
+        class(version_t), intent(in) :: self
+
+        !> Character representation of the version
+        character(len=:), allocatable, intent(out) :: string
+
+        integer, parameter :: buffersize = 64
+        character(len=buffersize) :: buffer
+        integer :: ii
+
+        do ii = 1, size(self%num)
+            if (allocated(string)) then
+                write(buffer, '(".", i0)') self%num(ii)
+                string = string // trim(buffer)
+            else
+                write(buffer, '(i0)') self%num(ii)
+                string = trim(buffer)
+            end if
+        end do
+
+        if (.not.allocated(string)) then
+            string = '0'
+        end if
+
+    end subroutine to_string
+
+
+    function as_string(self) result(string)
+
+        !> Version number
+        class(version_t), intent(in) :: self
+
+        !> Character representation of the version
+        character(len=:), allocatable :: string
+
+        call self%to_string(string)
+
+    end function as_string
+
+
+    !> Check to version numbers for equality
+    elemental function equals(lhs, rhs) result(is_equal)
+
+        !> First version number
+        class(version_t), intent(in) :: lhs
+
+        !> Second version number
+        class(version_t), intent(in) :: rhs
+
+        !> Version match
+        logical :: is_equal
+
+        is_equal = .not.(lhs > rhs)
+        if (is_equal) then
+            is_equal = .not.(rhs > lhs)
+        end if
+
+    end function equals
+
+
+    !> Check two versions for inequality
+    elemental function not_equals(lhs, rhs) result(not_equal)
+
+        !> First version number
+        class(version_t), intent(in) :: lhs
+
+        !> Second version number
+        class(version_t), intent(in) :: rhs
+
+        !> Version mismatch
+        logical :: not_equal
+
+        not_equal = lhs > rhs
+        if (.not.not_equal) then
+            not_equal = rhs > lhs
+        end if
+
+    end function not_equals
+
+
+    !> Relative comparison of two versions
+    elemental function greater(lhs, rhs) result(is_greater)
+
+        !> First version number
+        class(version_t), intent(in) :: lhs
+
+        !> Second version number
+        class(version_t), intent(in) :: rhs
+
+        !> First version is greater
+        logical :: is_greater
+
+        integer :: ii
+
+        do ii = 1, min(size(lhs%num), size(rhs%num))
+            is_greater = lhs%num(ii) > rhs%num(ii)
+            if (is_greater) exit
+        end do
+        if (is_greater) return
+
+        is_greater = size(lhs%num) > size(rhs%num)
+        if (is_greater) then
+            do ii = size(rhs%num) + 1, size(lhs%num)
+                is_greater = lhs%num(ii) > 0
+                if (is_greater) exit
+            end do
+        end if
+
+    end function greater
+
+
+    !> Relative comparison of two versions
+    elemental function less(lhs, rhs) result(is_less)
+
+        !> First version number
+        class(version_t), intent(in) :: lhs
+
+        !> Second version number
+        class(version_t), intent(in) :: rhs
+
+        !> First version is less
+        logical :: is_less
+
+        is_less = rhs > lhs
+
+    end function less
+
+
+    !> Relative comparison of two versions
+    elemental function greater_equals(lhs, rhs) result(is_greater_equal)
+
+        !> First version number
+        class(version_t), intent(in) :: lhs
+
+        !> Second version number
+        class(version_t), intent(in) :: rhs
+
+        !> First version is greater or equal
+        logical :: is_greater_equal
+
+        is_greater_equal = .not. (rhs > lhs)
+
+    end function greater_equals
+
+
+    !> Relative comparison of two versions
+    elemental function less_equals(lhs, rhs) result(is_less_equal)
+
+        !> First version number
+        class(version_t), intent(in) :: lhs
+
+        !> Second version number
+        class(version_t), intent(in) :: rhs
+
+        !> First version is less or equal
+        logical :: is_less_equal
+
+        is_less_equal = .not. (lhs > rhs)
+
+    end function less_equals
+
+
+    !> Try to match first version against second version
+    elemental function match(lhs, rhs)
+
+        !> First version number
+        class(version_t), intent(in) :: lhs
+
+        !> Second version number
+        class(version_t), intent(in) :: rhs
+
+        !> Version match following semantic versioning rules
+        logical :: match
+
+        type(version_t) :: tmp
+
+        match = .not.(rhs > lhs)
+        if (match) then
+            tmp%num = rhs%num
+            tmp%num(size(tmp%num)) = tmp%num(size(tmp%num)) + 1
+            match = tmp > lhs
+        end if
+
+    end function match
+
+
+end module fpm_versioning
+ 
+ 
+!>>>>> build/dependencies/toml-f/src/tomlf/utils.f90
+! This file is part of toml-f.
+!
+! Copyright (C) 2019-2020 Sebastian Ehlert
+!
+! Licensed under either of Apache License, Version 2.0 or MIT license
+! at your option; you may not use this file except in compliance with
+! the License.
+!
+! Unless required by applicable law or agreed to in writing, software
+! distributed under the License is distributed on an "AS IS" BASIS,
+! WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+! See the License for the specific language governing permissions and
+! limitations under the License.
+
+module tomlf_utils
+   use tomlf_constants
+   use tomlf_datetime, only : toml_datetime, toml_date, toml_time
+   use tomlf_utils_convert
+   use tomlf_utils_verify
+   implicit none
+   private
+
+   public :: convert_raw
+   public :: toml_raw_to_string, toml_raw_to_float, toml_raw_to_bool
+   public :: toml_raw_to_integer, toml_raw_to_timestamp
+   public :: toml_raw_verify_string, toml_raw_verify_float, toml_raw_verify_bool
+   public :: toml_raw_verify_integer, toml_raw_verify_timestamp
+   public :: toml_raw_verify_date, toml_raw_verify_time
+   public :: toml_escape_string, toml_get_value_type
+
+
+contains
+
+
+!> Determine TOML value type
+function toml_get_value_type(raw) result(vtype)
+
+   !> Raw representation of TOML string
+   character(kind=tfc, len=*), intent(in) :: raw
+
+   !> Value type
+   integer :: vtype
+
+   if (toml_raw_verify_string(raw)) then
+      vtype = toml_type%string
+      return
+   end if
+   if (toml_raw_verify_bool(raw)) then
+      vtype = toml_type%boolean
+      return
+   end if
+   if (toml_raw_verify_integer(raw)) then
+      vtype = toml_type%int
+      return
+   end if
+   if (toml_raw_verify_float(raw)) then
+      vtype = toml_type%float
+      return
+   end if
+   if (toml_raw_verify_timestamp(raw)) then
+      vtype = toml_type%datetime
+      return
+   end if
+   vtype = toml_type%invalid
+
+end function
+
+
+!> Escape all special characters in a TOML string
+subroutine toml_escape_string(raw, escaped)
+
+   !> Raw representation of TOML string
+   character(kind=tfc, len=*), intent(in) :: raw
+
+   !> Escaped view of the TOML string
+   character(kind=tfc, len=:), allocatable, intent(out) :: escaped
+
+   integer :: i
+
+   escaped = '"'
+   do i = 1, len(raw)
+      select case(raw(i:i))
+      case default; escaped = escaped // raw(i:i)
+      case('\'); escaped = escaped // '\\'
+      case('"'); escaped = escaped // '\"'
+      case(TOML_NEWLINE); escaped = escaped // '\n'
+      case(TOML_FORMFEED); escaped = escaped // '\f'
+      case(TOML_CARRIAGE_RETURN); escaped = escaped // '\r'
+      case(TOML_TABULATOR); escaped = escaped // '\t'
+      case(TOML_BACKSPACE); escaped = escaped // '\b'
+      end select
+   end do
+   escaped = escaped // '"'
+
+end subroutine toml_escape_string
+
+
+end module tomlf_utils
+ 
+ 
 !>>>>> ././src/fpm_filesystem.f90
 !> This module contains general routines for interacting with the file system
 !!
 module fpm_filesystem
+
 use,intrinsic :: iso_fortran_env, only : stdin=>input_unit, stdout=>output_unit, stderr=>error_unit
     use M_escape, only : esc
     use fpm_environment, only: get_os_type, &
                                OS_UNKNOWN, OS_LINUX, OS_MACOS, OS_WINDOWS, &
                                OS_CYGWIN, OS_SOLARIS, OS_FREEBSD, OS_OPENBSD
-    use fpm_environment, only: separator, get_env, fpm_stop
-    use fpm_strings, only: f_string, replace, string_t, split
+    use fpm_environment, only: separator, get_env
+    use fpm_strings, only: f_string, replace, string_t, split, notabs
+    use fpm_error, only : fpm_stop
     implicit none
     private
-    public :: basename, canon_path, dirname, is_dir, join_path, number_of_rows, read_lines, list_files, env_variable, &
-            mkdir, exists, get_temp_filename, windows_path, unix_path, getline, delete_file, to_fortran_name
+    public :: basename, canon_path, dirname, is_dir, join_path, number_of_rows, list_files, env_variable, &
+            mkdir, exists, get_temp_filename, windows_path, unix_path, getline, delete_file, &
+            read_lines, read_lines_expanded
     public :: fileopen, fileclose, filewrite, warnwrite, parent_dir
     public :: which
 
@@ -11947,7 +12238,7 @@ end subroutine env_variable
 
 !> Extract filename from path with/without suffix
 function basename(path,suffix) result (base)
- 
+
     character(*), intent(In) :: path
     logical, intent(in), optional :: suffix
     character(:), allocatable :: base
@@ -12191,6 +12482,24 @@ function read_lines(fh) result(lines)
 
 end function read_lines
 
+!> read lines into an array of TYPE(STRING_T) variables expanding tabs
+function read_lines_expanded(fh) result(lines)
+    integer, intent(in) :: fh
+    type(string_t), allocatable :: lines(:)
+
+    integer :: i
+    integer :: ilen
+    character(LINE_BUFFER_LEN) :: line_buffer_read, line_buffer_expanded
+
+    allocate(lines(number_of_rows(fh)))
+    do i = 1, size(lines)
+        read(fh, '(A)') line_buffer_read
+        call notabs(line_buffer_read, line_buffer_expanded, ilen)
+        lines(i)%s = trim(line_buffer_expanded)
+    end do
+
+end function read_lines_expanded
+
 !> Create a directory. Create subdirectories as needed
 subroutine mkdir(dir)
     character(len=*), intent(in) :: dir
@@ -12209,7 +12518,7 @@ subroutine mkdir(dir)
     end select
 
     if (stat /= 0) then
-        call fpm_stop(stopmsg='execute_command_line() failed')
+        call fpm_stop(1, '*mkdir*:directory creation failed')
     end if
 end subroutine mkdir
 
@@ -12246,7 +12555,7 @@ recursive subroutine list_files(dir, files, recurse)
     end select
 
     if (stat /= 0) then
-	call fpm_stop(stopmsg='execute_command_line() failed')
+        call fpm_stop(2,'*list_files*:directory listing failed')
     end if
 
     open (newunit=fh, file=temp_file, status='old')
@@ -12457,12 +12766,11 @@ character(len=256)            :: message
         ios=0
     endif
     if(ios.ne.0)then
-        write(stderr,'(*(a:,1x))') esc('<r><bo>error:'),'*fileopen*:',filename,trim(message)
         lun=-1
         if(present(ier))then
            ier=ios
         else
-           stop 1
+           call fpm_stop(3,'*fileopen*:'//filename//':'//trim(message))
         endif
     endif
 
@@ -12477,11 +12785,10 @@ integer               :: ios
     if(lun.ne.-1)then
         close(unit=lun,iostat=ios,iomsg=message)
         if(ios.ne.0)then
-            write(stderr,'(*(a:,1x))') esc('<r><bo>error:'),'*fileclose*:',trim(message)
             if(present(ier))then
                ier=ios
             else
-               stop 2
+               call fpm_stop(4,'*fileclose*:'//trim(message))
             endif
         endif
     endif
@@ -12501,8 +12808,7 @@ character(len=256)                    :: message
        do i=1,size(filedata)
            write(lun,'(a)',iostat=ios,iomsg=message)trim(filedata(i))
            if(ios.ne.0)then
-               write(stderr,'(*(a:,1x))') esc('<r><bo>error:'),'*filewrite*:',filename,trim(message)
-               stop 4
+               call fpm_stop(5,'*filewrite*:'//filename//':'//trim(message))
            endif
        enddo
     endif
@@ -12510,16 +12816,6 @@ character(len=256)                    :: message
     call fileclose(lun)
 
 end subroutine filewrite
-
-!> Returns string with special characters replaced with an underscore.
-!! For now, only a hyphen is treated as a special character, but this can be
-!! expanded to other characters if needed.
-pure function to_fortran_name(string) result(res)
-    character(*), intent(in) :: string
-    character(len(string)) :: res
-    character, parameter :: SPECIAL_CHARACTERS(*) = ['-']
-    res = replace(string, SPECIAL_CHARACTERS, '_')
-end function to_fortran_name
 
 function which(command) result(pathname)
 !>
@@ -12604,7 +12900,7 @@ end function which
 end module fpm_filesystem
  
  
-!>>>>> build/dependencies/toml-f/src/tomlf/utils.f90
+!>>>>> build/dependencies/toml-f/src/tomlf/type/value.f90
 ! This file is part of toml-f.
 !
 ! Copyright (C) 2019-2020 Sebastian Ehlert
@@ -12619,90 +12915,140 @@ end module fpm_filesystem
 ! See the License for the specific language governing permissions and
 ! limitations under the License.
 
-module tomlf_utils
-   use tomlf_constants
-   use tomlf_datetime, only : toml_datetime, toml_date, toml_time
-   use tomlf_utils_convert
-   use tomlf_utils_verify
+!> Class definitions for basic data types used for handling TOML
+module tomlf_type_value
+   use tomlf_constants, only : tfc, TOML_BAREKEY
+   use tomlf_utils, only : toml_escape_string
    implicit none
    private
 
-   public :: convert_raw
-   public :: toml_raw_to_string, toml_raw_to_float, toml_raw_to_bool
-   public :: toml_raw_to_integer, toml_raw_to_timestamp
-   public :: toml_raw_verify_string, toml_raw_verify_float, toml_raw_verify_bool
-   public :: toml_raw_verify_integer, toml_raw_verify_timestamp
-   public :: toml_raw_verify_date, toml_raw_verify_time
-   public :: toml_escape_string, toml_get_value_type
+   public :: toml_value, toml_visitor, toml_key
+
+
+   !> Abstract base value for TOML data types
+   type, abstract :: toml_value
+
+      !> Raw representation of the key to the TOML value
+      character(kind=tfc, len=:), allocatable :: key
+
+   contains
+
+      !> Accept a visitor to transverse the data structure
+      procedure :: accept
+
+      !> Get escaped key to TOML value
+      procedure :: get_key
+
+      !> Compare raw key of TOML value to input key
+      procedure :: match_key
+
+      !> Release allocation hold by TOML value
+      procedure(destroy), deferred :: destroy
+
+   end type toml_value
+
+
+   !> Abstract visitor for TOML values
+   type, abstract :: toml_visitor
+   contains
+
+      !> Visitor visiting a TOML value
+      procedure(visit), deferred :: visit
+
+   end type toml_visitor
+
+
+   !> Thin wrapper around the deferred-size character intrinisc
+   type :: toml_key
+
+      !> Raw representation of the key to the TOML value
+      character(kind=tfc, len=:), allocatable :: key
+
+   end type toml_key
+
+
+   abstract interface
+      !> Accept a visitor to transverse the data structure
+      recursive subroutine visit(self, val)
+         import toml_value, toml_visitor
+
+         !> Instance of the visitor
+         class(toml_visitor), intent(inout) :: self
+
+         !> Value to visit
+         class(toml_value), intent(inout) :: val
+      end subroutine visit
+
+      !> Deconstructor to cleanup allocations (optional)
+      subroutine destroy(self)
+         import toml_value
+
+         !> Instance of the TOML value
+         class(toml_value), intent(inout) :: self
+
+      end subroutine destroy
+
+   end interface
 
 
 contains
 
 
-!> Determine TOML value type
-function toml_get_value_type(raw) result(vtype)
+!> Accept a visitor to transverse the data structure
+recursive subroutine accept(self, visitor)
 
-   !> Raw representation of TOML string
-   character(kind=tfc, len=*), intent(in) :: raw
+   !> Instance of the TOML value
+   class(toml_value), intent(inout) :: self
 
-   !> Value type
-   integer :: vtype
+   !> Visitor for this value
+   class(toml_visitor), intent(inout) :: visitor
 
-   if (toml_raw_verify_string(raw)) then
-      vtype = toml_type%string
-      return
+   call visitor%visit(self)
+
+end subroutine accept
+
+
+!> Get escaped key to TOML value
+subroutine get_key(self, key)
+
+   !> TOML value instance.
+   class(toml_value), intent(in) :: self
+
+   !> Contains valid TOML key on exit
+   character(kind=tfc, len=:), allocatable :: key
+
+   if (allocated(self%key)) then
+      if (verify(self%key, TOML_BAREKEY) == 0 .and. len(self%key) > 0) then
+         key = self%key
+      else
+         call toml_escape_string(self%key, key)
+      end if
    end if
-   if (toml_raw_verify_bool(raw)) then
-      vtype = toml_type%boolean
-      return
+
+end subroutine get_key
+
+
+!> Compare raw key of TOML value to input key
+pure function match_key(self, key) result(match)
+
+   !> TOML value instance.
+   class(toml_value), intent(in) :: self
+
+   !> TOML raw key to compare to
+   character(kind=tfc, len=*), intent(in) :: key
+
+   logical :: match
+
+   if (allocated(self%key)) then
+      match = key == self%key
+   else
+      match = .false.
    end if
-   if (toml_raw_verify_integer(raw)) then
-      vtype = toml_type%int
-      return
-   end if
-   if (toml_raw_verify_float(raw)) then
-      vtype = toml_type%float
-      return
-   end if
-   if (toml_raw_verify_timestamp(raw)) then
-      vtype = toml_type%datetime
-      return
-   end if
-   vtype = toml_type%invalid
 
-end function
+end function match_key
 
 
-!> Escape all special characters in a TOML string
-subroutine toml_escape_string(raw, escaped)
-
-   !> Raw representation of TOML string
-   character(kind=tfc, len=*), intent(in) :: raw
-
-   !> Escaped view of the TOML string
-   character(kind=tfc, len=:), allocatable, intent(out) :: escaped
-
-   integer :: i
-
-   escaped = '"'
-   do i = 1, len(raw)
-      select case(raw(i:i))
-      case default; escaped = escaped // raw(i:i)
-      case('\'); escaped = escaped // '\\'
-      case('"'); escaped = escaped // '\"'
-      case(TOML_NEWLINE); escaped = escaped // '\n'
-      case(TOML_FORMFEED); escaped = escaped // '\f'
-      case(TOML_CARRIAGE_RETURN); escaped = escaped // '\r'
-      case(TOML_TABULATOR); escaped = escaped // '\t'
-      case(TOML_BACKSPACE); escaped = escaped // '\b'
-      end select
-   end do
-   escaped = escaped // '"'
-
-end subroutine toml_escape_string
-
-
-end module tomlf_utils
+end module tomlf_type_value
  
  
 !>>>>> ././src/fpm/git.f90
@@ -13256,157 +13602,6 @@ contains
   end subroutine run
 
 end module fpm_installer
- 
- 
-!>>>>> build/dependencies/toml-f/src/tomlf/type/value.f90
-! This file is part of toml-f.
-!
-! Copyright (C) 2019-2020 Sebastian Ehlert
-!
-! Licensed under either of Apache License, Version 2.0 or MIT license
-! at your option; you may not use this file except in compliance with
-! the License.
-!
-! Unless required by applicable law or agreed to in writing, software
-! distributed under the License is distributed on an "AS IS" BASIS,
-! WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-! See the License for the specific language governing permissions and
-! limitations under the License.
-
-!> Class definitions for basic data types used for handling TOML
-module tomlf_type_value
-   use tomlf_constants, only : tfc, TOML_BAREKEY
-   use tomlf_utils, only : toml_escape_string
-   implicit none
-   private
-
-   public :: toml_value, toml_visitor, toml_key
-
-
-   !> Abstract base value for TOML data types
-   type, abstract :: toml_value
-
-      !> Raw representation of the key to the TOML value
-      character(kind=tfc, len=:), allocatable :: key
-
-   contains
-
-      !> Accept a visitor to transverse the data structure
-      procedure :: accept
-
-      !> Get escaped key to TOML value
-      procedure :: get_key
-
-      !> Compare raw key of TOML value to input key
-      procedure :: match_key
-
-      !> Release allocation hold by TOML value
-      procedure(destroy), deferred :: destroy
-
-   end type toml_value
-
-
-   !> Abstract visitor for TOML values
-   type, abstract :: toml_visitor
-   contains
-
-      !> Visitor visiting a TOML value
-      procedure(visit), deferred :: visit
-
-   end type toml_visitor
-
-
-   !> Thin wrapper around the deferred-size character intrinisc
-   type :: toml_key
-
-      !> Raw representation of the key to the TOML value
-      character(kind=tfc, len=:), allocatable :: key
-
-   end type toml_key
-
-
-   abstract interface
-      !> Accept a visitor to transverse the data structure
-      recursive subroutine visit(self, val)
-         import toml_value, toml_visitor
-
-         !> Instance of the visitor
-         class(toml_visitor), intent(inout) :: self
-
-         !> Value to visit
-         class(toml_value), intent(inout) :: val
-      end subroutine visit
-
-      !> Deconstructor to cleanup allocations (optional)
-      subroutine destroy(self)
-         import toml_value
-
-         !> Instance of the TOML value
-         class(toml_value), intent(inout) :: self
-
-      end subroutine destroy
-
-   end interface
-
-
-contains
-
-
-!> Accept a visitor to transverse the data structure
-recursive subroutine accept(self, visitor)
-
-   !> Instance of the TOML value
-   class(toml_value), intent(inout) :: self
-
-   !> Visitor for this value
-   class(toml_visitor), intent(inout) :: visitor
-
-   call visitor%visit(self)
-
-end subroutine accept
-
-
-!> Get escaped key to TOML value
-subroutine get_key(self, key)
-
-   !> TOML value instance.
-   class(toml_value), intent(in) :: self
-
-   !> Contains valid TOML key on exit
-   character(kind=tfc, len=:), allocatable :: key
-
-   if (allocated(self%key)) then
-      if (verify(self%key, TOML_BAREKEY) == 0 .and. len(self%key) > 0) then
-         key = self%key
-      else
-         call toml_escape_string(self%key, key)
-      end if
-   end if
-
-end subroutine get_key
-
-
-!> Compare raw key of TOML value to input key
-pure function match_key(self, key) result(match)
-
-   !> TOML value instance.
-   class(toml_value), intent(in) :: self
-
-   !> TOML raw key to compare to
-   character(kind=tfc, len=*), intent(in) :: key
-
-   logical :: match
-
-   if (allocated(self%key)) then
-      match = key == self%key
-   else
-      match = .false.
-   end if
-
-end function match_key
-
-
-end module tomlf_type_value
  
  
 !>>>>> build/dependencies/toml-f/src/tomlf/structure/base.f90
@@ -19479,8 +19674,8 @@ end module fpm_manifest_library
 !>```
 module fpm_manifest_executable
     use fpm_manifest_dependency, only : dependency_config_t, new_dependencies
-    use fpm_error, only : error_t, syntax_error
-    use fpm_strings, only : string_t
+    use fpm_error, only : error_t, syntax_error, bad_name_error
+    use fpm_strings, only : string_t 
     use fpm_toml, only : toml_table, toml_key, toml_stat, get_value
     implicit none
     private
@@ -19539,6 +19734,9 @@ contains
            call syntax_error(error, "Could not retrieve executable name")
            return
         end if
+        if (bad_name_error(error,'executable',self%name))then
+           return
+        endif
         call get_value(table, "source-dir", self%source_dir, "app")
         call get_value(table, "main", self%main, "main.f90")
 
@@ -19673,7 +19871,7 @@ end module fpm_manifest_executable
 module fpm_manifest_example
     use fpm_manifest_dependency, only : dependency_config_t, new_dependencies
     use fpm_manifest_executable, only : executable_config_t
-    use fpm_error, only : error_t, syntax_error
+    use fpm_error, only : error_t, syntax_error, bad_name_error
     use fpm_toml, only : toml_table, toml_key, toml_stat, get_value
     implicit none
     private
@@ -19717,6 +19915,9 @@ contains
            call syntax_error(error, "Could not retrieve example name")
            return
         end if
+        if (bad_name_error(error,'example',self%name))then
+           return
+        endif
         call get_value(table, "source-dir", self%source_dir, "example")
         call get_value(table, "main", self%main, "main.f90")
 
@@ -19851,7 +20052,7 @@ end module fpm_manifest_example
 module fpm_manifest_test
     use fpm_manifest_dependency, only : dependency_config_t, new_dependencies
     use fpm_manifest_executable, only : executable_config_t
-    use fpm_error, only : error_t, syntax_error
+    use fpm_error, only : error_t, syntax_error, bad_name_error
     use fpm_toml, only : toml_table, toml_key, toml_stat, get_value
     implicit none
     private
@@ -19895,6 +20096,9 @@ contains
            call syntax_error(error, "Could not retrieve test name")
            return
         end if
+        if (bad_name_error(error,'test',self%name))then
+           return
+        endif
         call get_value(table, "source-dir", self%source_dir, "test")
         call get_value(table, "main", self%main, "main.f90")
 
@@ -20051,7 +20255,7 @@ module fpm_manifest_package
     use fpm_manifest_install, only: install_config_t, new_install_config
     use fpm_manifest_test, only : test_config_t, new_test
     use fpm_filesystem, only : exists, getline, join_path
-    use fpm_error, only : error_t, fatal_error, syntax_error
+    use fpm_error, only : error_t, fatal_error, syntax_error, bad_name_error
     use fpm_toml, only : toml_table, toml_array, toml_key, toml_stat, get_value, &
         & len
     use fpm_versioning, only : version_t, new_version
@@ -20143,6 +20347,9 @@ contains
            call syntax_error(error, "Could not retrieve package name")
            return
         end if
+        if (bad_name_error(error,'package',self%name))then
+           return
+        endif
 
         if (len(self%name) <= 0) then
             call syntax_error(error, "Package name must be a non-empty string")
@@ -22303,13 +22510,13 @@ end module fpm_compiler
 !>
 module fpm_source_parsing
 use fpm_error, only: error_t, file_parse_error, fatal_error
-use fpm_strings, only: string_t, string_cat, len_trim, split, lower, str_ends_with, fnv_1a
+use fpm_strings, only: string_t, string_cat, len_trim, split, lower, str_ends_with, fnv_1a, is_fortran_name
 use fpm_model, only: srcfile_t, &
                     FPM_UNIT_UNKNOWN, FPM_UNIT_PROGRAM, FPM_UNIT_MODULE, &
                     FPM_UNIT_SUBMODULE, FPM_UNIT_SUBPROGRAM, &
                     FPM_UNIT_CSOURCE, FPM_UNIT_CHEADER, FPM_SCOPE_UNKNOWN, &
                     FPM_SCOPE_LIB, FPM_SCOPE_DEP, FPM_SCOPE_APP, FPM_SCOPE_TEST
-use fpm_filesystem, only: read_lines
+use fpm_filesystem, only: read_lines, read_lines_expanded
 implicit none
 
 private
@@ -22365,17 +22572,24 @@ function parse_f_source(f_filename,error) result(f_source)
 
     integer :: stat
     integer :: fh, n_use, n_include, n_mod, i, j, ic, pass
-    type(string_t), allocatable :: file_lines(:)
+    type(string_t), allocatable :: file_lines(:), file_lines_lower(:)
     character(:), allocatable :: temp_string, mod_name, string_parts(:)
 
     f_source%file_name = f_filename
 
     open(newunit=fh,file=f_filename,status='old')
-    file_lines = read_lines(fh)
+    file_lines = read_lines_expanded(fh)
     close(fh)
 
-    ! Ignore empty files, returned as FPM_UNIT_UNKNOW
-    if (len_trim(file_lines) < 1) return
+    ! for efficiency in parsing make a lowercase left-adjusted copy of the file
+    ! Need a copy because INCLUDE (and #include) file arguments are case-sensitive
+    file_lines_lower=file_lines
+    do i=1,size(file_lines_lower)
+       file_lines_lower(i)%s=adjustl(lower(file_lines_lower(i)%s))
+    enddo
+
+    ! Ignore empty files, returned as FPM_UNIT_UNKNOWN
+    if (len_trim(file_lines_lower) < 1) return
 
     f_source%digest = fnv_1a(file_lines)
 
@@ -22383,31 +22597,31 @@ function parse_f_source(f_filename,error) result(f_source)
         n_use = 0
         n_include = 0
         n_mod = 0
-        file_loop: do i=1,size(file_lines)
+        file_loop: do i=1,size(file_lines_lower)
 
             ! Skip lines that are continued: not statements
             if (i > 1) then
-                ic = index(file_lines(i-1)%s,'!')
+                ic = index(file_lines_lower(i-1)%s,'!')
                 if (ic < 1) then
-                    ic = len(file_lines(i-1)%s)
+                    ic = len(file_lines_lower(i-1)%s)
                 end if
-                temp_string = trim(file_lines(i-1)%s(1:ic))
+                temp_string = trim(file_lines_lower(i-1)%s(1:ic))
                 if (len(temp_string) > 0 .and. index(temp_string,'&') == len(temp_string)) then
                     cycle
                 end if
             end if
 
             ! Process 'USE' statements
-            if (index(adjustl(lower(file_lines(i)%s)),'use ') == 1 .or. &
-                index(adjustl(lower(file_lines(i)%s)),'use::') == 1) then
+            if (index(file_lines_lower(i)%s,'use ') == 1 .or. &
+                index(file_lines_lower(i)%s,'use::') == 1) then
 
-                if (index(file_lines(i)%s,'::') > 0) then
+                if (index(file_lines_lower(i)%s,'::') > 0) then
 
-                    temp_string = split_n(file_lines(i)%s,delims=':',n=2,stat=stat)
+                    temp_string = split_n(file_lines_lower(i)%s,delims=':',n=2,stat=stat)
                     if (stat /= 0) then
                         call file_parse_error(error,f_filename, &
                                 'unable to find used module name',i, &
-                                file_lines(i)%s,index(file_lines(i)%s,'::'))
+                                file_lines_lower(i)%s,index(file_lines_lower(i)%s,'::'))
                         return
                     end if
 
@@ -22415,25 +22629,23 @@ function parse_f_source(f_filename,error) result(f_source)
                     if (stat /= 0) then
                         call file_parse_error(error,f_filename, &
                                  'unable to find used module name',i, &
-                                 file_lines(i)%s)
+                                 file_lines_lower(i)%s)
                         return
                     end if
-                    mod_name = lower(mod_name)
 
                 else
 
-                    mod_name = split_n(file_lines(i)%s,n=2,delims=' ,',stat=stat)
+                    mod_name = split_n(file_lines_lower(i)%s,n=2,delims=' ,',stat=stat)
                     if (stat /= 0) then
                         call file_parse_error(error,f_filename, &
                                 'unable to find used module name',i, &
-                                file_lines(i)%s)
+                                file_lines_lower(i)%s)
                         return
                     end if
-                    mod_name = lower(mod_name)
 
                 end if
 
-                if (.not.validate_name(mod_name)) then
+                if (.not.is_fortran_name(mod_name)) then
                     cycle
                 end if
 
@@ -22453,12 +22665,11 @@ function parse_f_source(f_filename,error) result(f_source)
             end if
 
             ! Process 'INCLUDE' statements
-            ic = index(adjustl(lower(file_lines(i)%s)),'include')
+            ic = index(file_lines_lower(i)%s,'include')
             if ( ic == 1 ) then
                 ic = index(lower(file_lines(i)%s),'include')
                 if (index(adjustl(file_lines(i)%s(ic+7:)),'"') == 1 .or. &
                     index(adjustl(file_lines(i)%s(ic+7:)),"'") == 1 ) then
-
 
                     n_include = n_include + 1
 
@@ -22476,14 +22687,14 @@ function parse_f_source(f_filename,error) result(f_source)
             end if
 
             ! Extract name of module if is module
-            if (index(adjustl(lower(file_lines(i)%s)),'module ') == 1) then
+            if (index(file_lines_lower(i)%s,'module ') == 1) then
 
                 ! Remove any trailing comments
-                ic = index(file_lines(i)%s,'!')-1
+                ic = index(file_lines_lower(i)%s,'!')-1
                 if (ic < 1) then
-                    ic = len(file_lines(i)%s)
+                    ic = len(file_lines_lower(i)%s)
                 end if
-                temp_string = trim(file_lines(i)%s(1:ic))
+                temp_string = trim(file_lines_lower(i)%s(1:ic))
 
                 ! R1405 module-stmt := "MODULE" module-name
                 ! module-stmt has two space-delimited parts only
@@ -22493,7 +22704,7 @@ function parse_f_source(f_filename,error) result(f_source)
                     cycle
                 end if
 
-                mod_name = lower(trim(adjustl(string_parts(2))))
+                mod_name = trim(adjustl(string_parts(2)))
                 if (scan(mod_name,'=(&')>0 ) then
                     ! Ignore these cases:
                     ! module <something>&
@@ -22502,10 +22713,10 @@ function parse_f_source(f_filename,error) result(f_source)
                     cycle
                 end if
 
-                if (.not.validate_name(mod_name)) then
+                if (.not.is_fortran_name(mod_name)) then
                     call file_parse_error(error,f_filename, &
                           'empty or invalid name for module',i, &
-                          file_lines(i)%s, index(file_lines(i)%s,mod_name))
+                          file_lines_lower(i)%s, index(file_lines_lower(i)%s,mod_name))
                     return
                 end if
 
@@ -22520,29 +22731,29 @@ function parse_f_source(f_filename,error) result(f_source)
             end if
 
             ! Extract name of submodule if is submodule
-            if (index(adjustl(lower(file_lines(i)%s)),'submodule') == 1) then
+            if (index(file_lines_lower(i)%s,'submodule') == 1) then
 
-                mod_name = split_n(file_lines(i)%s,n=3,delims='()',stat=stat)
+                mod_name = split_n(file_lines_lower(i)%s,n=3,delims='()',stat=stat)
                 if (stat /= 0) then
                     call file_parse_error(error,f_filename, &
                           'unable to get submodule name',i, &
-                          file_lines(i)%s)
+                          file_lines_lower(i)%s)
                     return
                 end if
-                if (.not.validate_name(mod_name)) then
+                if (.not.is_fortran_name(mod_name)) then
                     call file_parse_error(error,f_filename, &
                           'empty or invalid name for submodule',i, &
-                          file_lines(i)%s, index(file_lines(i)%s,mod_name))
+                          file_lines_lower(i)%s, index(file_lines_lower(i)%s,mod_name))
                     return
                 end if
 
                 n_mod = n_mod + 1
 
-                temp_string = split_n(file_lines(i)%s,n=2,delims='()',stat=stat)
+                temp_string = split_n(file_lines_lower(i)%s,n=2,delims='()',stat=stat)
                 if (stat /= 0) then
                     call file_parse_error(error,f_filename, &
                           'unable to get submodule ancestry',i, &
-                          file_lines(i)%s)
+                          file_lines_lower(i)%s)
                     return
                 end if
 
@@ -22558,16 +22769,16 @@ function parse_f_source(f_filename,error) result(f_source)
 
                     end if
 
-                    if (.not.validate_name(temp_string)) then
+                    if (.not.is_fortran_name(temp_string)) then
                         call file_parse_error(error,f_filename, &
                           'empty or invalid name for submodule parent',i, &
-                          file_lines(i)%s, index(file_lines(i)%s,temp_string))
+                          file_lines_lower(i)%s, index(file_lines_lower(i)%s,temp_string))
                         return
                     end if
 
-                    f_source%modules_used(n_use)%s = lower(temp_string)
+                    f_source%modules_used(n_use)%s = temp_string
 
-                    f_source%modules_provided(n_mod)%s = lower(mod_name)
+                    f_source%modules_provided(n_mod)%s = mod_name
 
                 end if
 
@@ -22575,9 +22786,9 @@ function parse_f_source(f_filename,error) result(f_source)
 
             ! Detect if contains a program
             !  (no modules allowed after program def)
-            if (index(adjustl(lower(file_lines(i)%s)),'program ') == 1) then
+            if (index(file_lines_lower(i)%s,'program ') == 1) then
 
-                temp_string = lower(split_n(file_lines(i)%s,n=2,delims=' ',stat=stat))
+                temp_string = split_n(file_lines_lower(i)%s,n=2,delims=' ',stat=stat)
                 if (stat == 0) then
 
                     if (scan(temp_string,'=(')>0 ) then
@@ -22607,44 +22818,6 @@ function parse_f_source(f_filename,error) result(f_source)
         end if
 
     end do
-
-    contains
-
-    function validate_name(name) result(valid)
-        character(*), intent(in) :: name
-        logical :: valid
-
-        integer :: i
-
-        if (len_trim(name) < 1) then
-            valid = .false.
-            return
-        end if
-
-        if (lower(name(1:1)) < 'a' .or. &
-            lower(name(1:1)) > 'z') then
-
-            valid = .false.
-            return
-        end if
-
-        do i=1,len(name)
-
-            if (.not.( &
-                (name(i:i) >= '0' .and. name(i:i) <= '9').or. &
-                (lower(name(i:i)) >= 'a' .and. lower(name(i:i)) <= 'z').or. &
-                name(i:i) == '_') ) then
-
-                valid = .false.
-                return
-            end if
-
-        end do
-
-        valid = .true.
-        return
-
-    end function validate_name
 
 end function parse_f_source
 
@@ -22682,7 +22855,7 @@ function parse_c_source(c_filename,error) result(c_source)
     file_lines = read_lines(fh)
     close(fh)
 
-    ! Ignore empty files, returned as FPM_UNIT_UNKNOW
+    ! Ignore empty files, returned as FPM_UNIT_UNKNOWN
     if (len_trim(file_lines) < 1) then
         c_source%unit_type = FPM_UNIT_UNKNOWN
         return
@@ -22798,7 +22971,7 @@ end module fpm_source_parsing
 !>
 module fpm_targets
 use iso_fortran_env, only: int64
-use fpm_error, only: error_t, fatal_error
+use fpm_error, only: error_t, fatal_error, fpm_stop
 use fpm_model
 use fpm_environment, only: get_os_type, OS_WINDOWS
 use fpm_filesystem, only: dirname, join_path, canon_path
@@ -23071,7 +23244,7 @@ subroutine add_target(targets,type,output_file,source,link_libraries)
             write(*,*) 'Error while building target list: duplicate output object "',&
                         output_file,'"'
             if (present(source)) write(*,*) ' Source file: "',source%file_name,'"'
-            stop 1
+            call fpm_stop(1,' ')
 
         end if
 
@@ -23114,7 +23287,7 @@ end subroutine add_dependency
 !>
 !> - Executable sources (`FPM_SCOPE_APP`,`FPM_SCOPE_TEST`) may use
 !>   library modules (including dependencies) as well as any modules
-!>   corresponding to source files in the same directory or a 
+!>   corresponding to source files in the same directory or a
 !>   subdirectory of the executable source file.
 !>
 !> @warning If a module used by a source file cannot be resolved to
@@ -23368,6 +23541,8 @@ end module fpm_targets
 !>
 module fpm_backend
 
+use,intrinsic :: iso_fortran_env, only : stdin=>input_unit, stdout=>output_unit, stderr=>error_unit
+use fpm_error, only : fpm_stop
 use fpm_environment, only: run, get_os_type, OS_WINDOWS
 use fpm_filesystem, only: basename, dirname, join_path, exists, mkdir, unix_path
 use fpm_model, only: fpm_model_t
@@ -23443,7 +23618,7 @@ subroutine build_package(targets,model)
                     write(*,*) esc('<r><bo>error:')//' Compilation failed for object "',basename(queue(j)%ptr%output_file),'"'
                 end if
             end do
-            stop 1
+            call fpm_stop(1,'stopping due to failed compilation')
         end if
 
     end do
@@ -23477,8 +23652,7 @@ recursive subroutine sort_target(target)
     ! Check for a circular dependency
     ! (If target has been touched but not processed)
     if (target%touched) then
-        write(*,*) '(!) Circular dependency found with: ',target%output_file
-        stop
+        call fpm_stop(1,'(!) Circular dependency found with: '//target%output_file)
     else
         target%touched = .true.  ! Set touched flag
     end if
@@ -23619,7 +23793,7 @@ subroutine build_target(model,target,stat)
 
     case (FPM_TARGET_EXECUTABLE)
 
-        write(*,('(a)')) esc('<E><bo><c>    load:')//' '//target%output_file
+        write(*,('(a)')) esc('<E><bo><c>    load:')//' '//basename(target%output_file)
         call run(model%fortran_compiler// " " // target%compile_flags &
               //" "//target%link_flags// " -o " // target%output_file, echo=.false., exitstat=stat)
 
@@ -23628,12 +23802,12 @@ subroutine build_target(model,target,stat)
         select case (get_os_type())
         case (OS_WINDOWS)
             call write_response_file(target%output_file//".resp" ,target%link_objects)
-            write(*,('(a)')) esc('<E><bo><y> archive:')//' '//target%output_file
+            write(*,('(a)')) esc('<E><bo><y> archive:')//' '//basename(target%output_file)
             call run(model%archiver // target%output_file // " @" // target%output_file//".resp", &
                      echo=.false., exitstat=stat)
 
         case default
-            write(*,('(a)')) esc('<E><bo><y> archive:')//' '//target%output_file
+            write(*,('(a)')) esc('<E><bo><y> archive:')//' '//basename(target%output_file)
             call run(model%archiver // target%output_file // " " // string_cat(target%link_objects," "), &
                      echo=.false., exitstat=stat)
 
@@ -23699,10 +23873,11 @@ use fpm_environment,  only : get_os_type, get_env, &
 use M_CLI2,           only : set_args, lget, sget, unnamed, remaining, specified
 use M_CLI2,           only : get_subcommand, CLI_RESPONSE_FILE
 use M_escape,         only : esc, esc_mode
-use fpm_strings,      only : lower, split, fnv_1a
-use fpm_filesystem,   only : basename, canon_path, to_fortran_name, which
+use fpm_strings,      only : lower, split, fnv_1a, to_fortran_name, is_fortran_name
+use fpm_filesystem,   only : basename, canon_path, which
 use fpm_environment,  only : run, get_command_arguments_quoted
-use fpm_compiler, only : get_default_compile_flags
+use fpm_compiler,     only : get_default_compile_flags
+use fpm_error,        only : fpm_stop
 use,intrinsic :: iso_fortran_env, only : stdin=>input_unit, &
                                        & stdout=>output_unit, &
                                        & stderr=>error_unit
@@ -23827,7 +24002,7 @@ contains
             case default     ; os_type =  "OS Type:     UNKNOWN"
         end select
         version_text = [character(len=80) :: &
-         &  'Version:     0.3.0, alpha',                           &
+         &  'Version:     0.3.0, alpha',                               &
          &  'Program:     fpm(1)',                                     &
          &  'Description: A Fortran package manager and build system', &
          &  'Home Page:   https://github.com/fortran-lang/fpm',        &
@@ -23934,40 +24109,38 @@ contains
 
             select case(size(unnamed))
             case(1)
-                write(stderr,'(*(g0,/))')esc('<r><bo>error:</r> directory name required')
                 write(stderr,'(*(7x,g0,/))') &
-                & esc('<g><bo>usage:</g> fpm new NAME [[--lib|--src] [--app] [--test] [--example]]|[--full|--bare] [--backfill]')
-                stop 1
+                & '<USAGE> fpm new NAME [[--lib|--src] [--app] [--test] [--example]]|[--full|--bare] [--backfill]'
+                call fpm_stop(1,'directory name required')
             case(2)
                 name=trim(unnamed(2))
             case default
-                write(stderr,'(g0)')esc('<r><bo>error:</r> only one directory name allowed')
                 write(stderr,'(7x,g0)') &
-                & esc('<g><bo>usage:</g> fpm new NAME [[--lib|--src] [--app] [--test] [--example]]| [--full|--bare] [--backfill]')
-                stop 2
+                & '<USAGE> fpm new NAME [[--lib|--src] [--app] [--test] [--example]]| [--full|--bare] [--backfill]'
+                call fpm_stop(2,'only one directory name allowed')
             end select
             !*! canon_path is not converting ".", etc.
             name=canon_path(name)
             if( .not.is_fortran_name(to_fortran_name(basename(name))) )then
-                write(stderr,'(g0)') &
-                & esc('<r><bo>error:</r> the fpm project name must be made of up to 63 ASCII letters,'), &
-                & esc('<bo>        numbers, underscores, or hyphens, and start with a letter.')
-                stop 4
+                write(stderr,'(g0)') [ character(len=72) :: &
+                & '<ERROR> the fpm project name must be made of up to 63 ASCII letters,', &
+                & '        numbers, underscores, or hyphens, and start with a letter.']
+                call fpm_stop(4,' ')
             endif
 
             allocate(fpm_new_settings :: cmd_settings)
             if (any( specified([character(len=10) :: 'src','lib','app','test','example','bare'])) &
             & .and.lget('full') )then
                 write(stderr,'(*(a))')&
-                & esc('<r><bo>error:</r> --full and any of [--src|--lib,--app,--test,--example,--bare]'), &
-                & esc('<bo>        are mutually exclusive.')
-                stop 5
+                &'<ERROR> --full and any of [--src|--lib,--app,--test,--example,--bare]', &
+                &'        are mutually exclusive.'
+                call fpm_stop(5,' ')
             elseif (any( specified([character(len=10) :: 'src','lib','app','test','example','full'])) &
             & .and.lget('bare') )then
                 write(stderr,'(*(a))')&
-                & esc('<r><bo>error:</r> --bare and any of [--src|--lib,--app,--test,--example,--full]'), &
-                & esc('<bo>        are mutually exclusive.')
-                stop 3
+                &'<ERROR> --bare and any of [--src|--lib,--app,--test,--example,--full]', &
+                &'        are mutually exclusive.'
+                call fpm_stop(3,' ')
             elseif (any( specified([character(len=10) :: 'src','lib','app','test','example']) ) )then
                 cmd_settings=fpm_new_settings(&
                  & backfill=lget('backfill'),               &
@@ -24224,27 +24397,6 @@ contains
 
     end subroutine get_command_line_settings
 
-    function is_fortran_name(line) result (lout)
-    ! determine if a string is a valid Fortran name ignoring trailing spaces
-    ! (but not leading spaces)
-    character(len=*),parameter   :: int='0123456789'
-    character(len=*),parameter   :: lower='abcdefghijklmnopqrstuvwxyz'
-    character(len=*),parameter   :: upper='ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    character(len=*),parameter   :: allowed=upper//lower//int//'_'
-    character(len=*),intent(in)  :: line
-    character(len=:),allocatable :: name
-    logical                      :: lout
-        name=trim(line)
-        if(len(name).ne.0)then
-            lout = .true.                                  &
-             & .and. verify(name(1:1), lower//upper) == 0  &
-             & .and. verify(name,allowed) == 0             &
-             & .and. len(name) <= 63
-        else
-            lout = .false.
-        endif
-    end function is_fortran_name
-
     subroutine set_help()
    help_list_nodash=[character(len=256) :: &
    !'<clear>', &
@@ -24272,22 +24424,35 @@ contains
    ' <bo>Note:</bo> color mode is controlled by the environment variable FPM_COLOR. The', &
    '       set of allowable values is {<g><bo>always,never,auto</bo></g><w>}. The default is "<g><bo>auto</bo></g><w>". ', &
    ' ']
-   help_list_dash = [character(len=90) :: &
+   help_list_dash = [character(len=256) :: &
    !'<clear>', &
-   '<b><bo>F</bo>ortran <bo>P</bo>ackage <bo>M</bo>anager:</b>', &
-   '                                                                                ', &
-   ' <bo><g>build</g></bo><w> [--compiler COMPILER_NAME] [--profile PROF] [--flag FFLAGS] [--list]          ', &
-   ' <bo><g>help</g></bo><w> [NAME(s)]                                                                 ', &
-   ' <bo><g>new</g></bo><w> NAME [[--lib|--src] [--app] [--test] [--example]]|                         ', &
-   '          </bo>[--full|--bare][--backfill]                                           ', &
-   ' <bo><g>update</g></bo><w> [NAME(s)] [--fetch-only] [--clean] [--verbose]                          ', &
-   ' <bo><g>list</g></bo><w> [--list]                                                                  ', &
-   ' <bo><g>run</g></bo><w>  [[--target] NAME(s) [--example] [--profile PROF] [--flag FFLAGS] [--all]       ', &
-   '      </bo>[--runner "CMD"] [--compiler COMPILER_NAME] [--list] [-- ARGS]            ', &
-   ' <bo><g>test</g></bo><w> [[--target] NAME(s)] [--profile PROF] [--flag FFLAGS] [--runner "CMD"]', &
-   '      </bo>[--list] [--compiler COMPILER_NAME] [-- ARGS]                                      ', &
-   ' <bo><g>install</g></bo><w> [--profile PROF] [--flag FFLAGS] [--no-rebuild] [--prefix PATH] ', &
-   '         </bo>[options]   ', &
+   '<b><bo>F</bo>ortran </bo>P</bo>ackage <bo>M</bo>anager:</b>', &
+   '                                                           ', &
+   ' <bo><g>build</g><w> [<g>--compiler</g> <m>COMPILER_NAME</m><w>] &
+   &[<g>--profile</g> <m>PROF</m><w>] [<g>--flag</g> <m>FFLAGS</m><w>] [<g>--list</g><w>]', &
+   '                                                           ', &
+   ' <bo><g>help</g><w> [<r><un>NAME(s)</un></r><w>]                       ', &
+   '                                                           ', &
+   ' <bo><g>new</g><w> <r><un>NAME</un></r><w> [[<g>--lib</g><w>|<g>--src</g><w>] [<g>--app</g><w>] &
+   &[<g>--test</g><w>] [<g>--example</g><w>]]|', &
+   ' <bo>         [<g>--full</g><w>|<g>--bare</g><w>][<g>--backfill</g><w>]', &
+   '                                                           ', &
+   ' <bo><g>update</g><w> <w>[<r><un>NAME(s)</un></r><w>] [<g>--fetch-only</g><w>] [<g>--clean</g><w>] [<g>--verbose</g><w>]', &
+   '                                                           ', &
+   ' <bo><g>list</g><w> [<g>--list</g><w>]', &
+   '                                                           ', &
+   ' <bo><g>run</g><w>  [[<g>--target</g><w>] <r><un>NAME(s)</un></r> <w>[<g>--example</g><w>]&
+   &[<g>--profile</g><w> <m>PROF</m><w>] [<g>--flag</g><w> <m>FFLAGS</m><w>] [<g>--all</g><w>]', &
+   ' <bo>     [<g>--runner</g><w> <m>"CMD"</m><w>] [<g>--compiler</g><w> <m>COMPILER_NAME</m><w>] &
+   &[<g>--list</g><w>] [-- <m>ARGS</m><w>]', &
+   '                                                           ', &
+   ' <bo><g>test</g><w> [[<g>--target</g><w>] <r><un>NAME(s)</un></r><w>] [<g>--profile</g><w> <m>PROF</m><w>] &
+   &[<g>--flag</g><w> <m>FFLAGS</m><w>] [<g>--runner</g><w> <m>"CMD"</m><w>]', &
+   ' <bo>     [<g>--list</g><w>] [<g>--compiler</g><w> <m>COMPILER_NAME</m><w>] [-- <m>ARGS</m><w>]', &
+   '                                                           ', &
+   ' <bo><g>install</g><w> [<g>--profile</g><w> <m>PROF</m>] [<g>--flag</g><w> <m>FFLAGS</m>] &
+   &[<g>--no-rebuild</g><w>] [<g>--prefix</g><w> <m>PATH</m><w>] ', &
+   ' <bo>        <w>[<m>OPTIONS</m><w>]', &
    ' ']
     help_usage=[character(len=256) :: &
     '' ]
@@ -25145,7 +25310,7 @@ use fpm_backend, only: build_package
 use fpm_command_line, only: fpm_build_settings, fpm_new_settings, &
                       fpm_run_settings, fpm_install_settings, fpm_test_settings
 use fpm_dependency, only : new_dependency_tree
-use fpm_environment, only: run, get_env, fpm_stop
+use fpm_environment, only: run, get_env 
 use fpm_filesystem, only: is_dir, join_path, number_of_rows, list_files, exists, basename
 use fpm_model, only: fpm_model_t, srcfile_t, show_model, &
                     FPM_SCOPE_UNKNOWN, FPM_SCOPE_LIB, FPM_SCOPE_DEP, &
@@ -25159,7 +25324,7 @@ use fpm_targets, only: targets_from_sources, resolve_module_dependencies, &
                         resolve_target_linking, build_target_t, build_target_ptr, &
                         FPM_TARGET_EXECUTABLE, FPM_TARGET_ARCHIVE
 use fpm_manifest, only : get_package_data, package_config_t
-use fpm_error, only : error_t, fatal_error
+use fpm_error, only : error_t, fatal_error, fpm_stop
 use fpm_manifest_test, only : test_config_t
 use,intrinsic :: iso_fortran_env, only : stdin=>input_unit,   &
                                        & stdout=>output_unit, &
@@ -25337,7 +25502,7 @@ subroutine build_model(model, settings, package, error)
     ! Check for duplicate modules
     call check_modules_for_duplicates(model, duplicates_found)
     if (duplicates_found) then
-      call fpm_stop(stopmsg='Error: One or more duplicate module names found.')
+        call fpm_stop(1,'*build_model*:Error: One or more duplicate module names found.')
     end if
 end subroutine build_model
 
@@ -25396,20 +25561,17 @@ integer :: i
 
 call get_package_data(package, "fpm.toml", error, apply_defaults=.true.)
 if (allocated(error)) then
-    print '(a)', error%message
-    call fpm_stop(1)
+    call fpm_stop(1,'*cmd_build*:package error:'//error%message)
 end if
 
 call build_model(model, settings, package, error)
 if (allocated(error)) then
-    print '(a)', error%message
-    call fpm_stop(1)
+    call fpm_stop(1,'*cmd_build*:model error:'//error%message)
 end if
 
 call targets_from_sources(targets,model,error)
 if (allocated(error)) then
-    print '(a)', error%message
-    call fpm_stop(1)
+    call fpm_stop(1,'*cmd_build*:target error:'//error%message)
 end if
 
 if(settings%list)then
@@ -25445,20 +25607,17 @@ subroutine cmd_run(settings,test)
 
     call get_package_data(package, "fpm.toml", error, apply_defaults=.true.)
     if (allocated(error)) then
-        print '(a)', error%message
-        call fpm_stop(1)
+        call fpm_stop(1, '*cmd_run*:package error:'//error%message)
     end if
 
     call build_model(model, settings%fpm_build_settings, package, error)
     if (allocated(error)) then
-        print '(a)', error%message
-        call fpm_stop(1)
+        call fpm_stop(1, '*cmd_run*:model error:'//error%message)
     end if
 
     call targets_from_sources(targets,model,error)
     if (allocated(error)) then
-        print '(a)', error%message
-        call fpm_stop(1)
+        call fpm_stop(1, '*cmd_run*:targets error:'//error%message)
     end if
 
     if (test) then
@@ -25514,11 +25673,10 @@ subroutine cmd_run(settings,test)
     ! Check if any apps/tests were found
     if (col_width < 0) then
         if (test) then
-            write(stderr,*) 'No tests to run'
+            call fpm_stop(0,'No tests to run')
         else
-            write(stderr,*) 'No executables to run'
+            call fpm_stop(0,'No executables to run')
         end if
-        stop
     end if
 
     ! Check all names are valid
@@ -25547,9 +25705,9 @@ subroutine cmd_run(settings,test)
         call compact_list_all()
 
         if(line.eq.'.' .or. line.eq.' ')then ! do not report these special strings
-           stop
+           call fpm_stop(0,'')
         else
-           stop 1
+           call fpm_stop(1,'')
         endif
 
     end if
@@ -25571,8 +25729,7 @@ subroutine cmd_run(settings,test)
                              exitstat=stat(i))
                 endif
             else
-                write(stderr,*) esc('<r><bo>error:'),executables(i)%s,' not found'
-                stop 1
+                call fpm_stop(1,'*cmd_run*:'//executables(i)%s//' not found')
             end if
         end do
 
@@ -25582,7 +25739,7 @@ subroutine cmd_run(settings,test)
                     write(*,*) esc('<r><bo>error: Execution failed for "'),basename(executables(i)%s),'"'
                 end if
             end do
-            stop 1
+            call fpm_stop(1,'*cmd_run*:stopping due to failed executions')
         end if
 
     endif
@@ -25692,9 +25849,10 @@ module fpm_cmd_new
 use M_escape, only : esc
 use fpm_command_line, only : fpm_new_settings
 use fpm_environment, only : run, OS_LINUX, OS_MACOS, OS_WINDOWS
-use fpm_filesystem, only : join_path, exists, basename, mkdir, is_dir, to_fortran_name
+use fpm_filesystem, only : join_path, exists, basename, mkdir, is_dir
 use fpm_filesystem, only : fileopen, fileclose, filewrite, warnwrite
-use fpm_strings, only : join
+use fpm_strings, only : join, to_fortran_name
+use fpm_error, only : fpm_stop
 use,intrinsic :: iso_fortran_env, only : stderr=>error_unit
 implicit none
 private
@@ -26244,7 +26402,7 @@ character(len=*),intent(in) :: filename
     ! continue building of manifest
     ! ...
     call new_package(package, table, error=error)
-    if (allocated(error)) stop 3
+    if (allocated(error)) call fpm_stop( 3,'')
     if(settings%verbose)then
        call table%accept(ser)
     endif
@@ -26292,10 +26450,9 @@ end module fpm_cmd_new
  
 !>>>>> ././src/fpm/cmd/update.f90
 module fpm_cmd_update
-  use fpm_environment, only : fpm_stop
   use fpm_command_line, only : fpm_update_settings
   use fpm_dependency, only : dependency_tree_t, new_dependency_tree
-  use fpm_error, only : error_t
+  use fpm_error, only : error_t, fpm_stop
   use fpm_filesystem, only : exists, mkdir, join_path, delete_file
   use fpm_manifest, only : package_config_t, get_package_data
   implicit none
@@ -26354,7 +26511,7 @@ contains
     !> Potential error
     type(error_t), intent(in), optional :: error
     if (present(error)) then
-      call fpm_stop(stopcode=1,stopmsg=error%message)
+      call fpm_stop(1, error%message)
     end if
   end subroutine handle_error
 
@@ -26365,10 +26522,9 @@ end module fpm_cmd_update
 module fpm_cmd_install
   use, intrinsic :: iso_fortran_env, only : output_unit
   use fpm, only : build_model
-  use fpm_environment, only : fpm_stop
   use fpm_backend, only : build_package
   use fpm_command_line, only : fpm_install_settings
-  use fpm_error, only : error_t, fatal_error
+  use fpm_error, only : error_t, fatal_error, fpm_stop
   use fpm_filesystem, only : join_path, list_files
   use fpm_installer, only : installer_t, new_installer
   use fpm_manifest, only : package_config_t, get_package_data
@@ -26533,13 +26689,13 @@ contains
   subroutine handle_error(error)
     type(error_t), intent(in), optional :: error
     if (present(error)) then
-      call fpm_stop(1,"[Error] "//error%message)
+      call fpm_stop(1,error%message)
     end if
   end subroutine handle_error
 
 end module fpm_cmd_install
 
-!>>>>> src/fpm_os.f90
+!>>>>> src/fpm_os.F90
 module fpm_os
     use, intrinsic :: iso_c_binding, only : c_char, c_int, c_null_char, c_ptr, c_associated
     use fpm_error, only : error_t, fatal_error
